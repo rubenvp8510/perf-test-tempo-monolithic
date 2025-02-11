@@ -1,0 +1,141 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-k8s
+  namespace: tempo-perf-test
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.36.2
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.36.2
+  name: prometheus-k8s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus-k8s
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-k8s
+    namespace: monitoring
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: query-load-generator
+  namespace: tempo-perf-test
+spec:
+  namespaceSelector: {}
+  selector:
+    matchLabels:
+      app: query-load-generator
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 2s
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: query-load-account
+  namespace: tempo-perf-test
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: admin-sa-binding
+  namespace: tempo-perf-test
+subjects:
+  - kind: ServiceAccount
+    name: query-load-account
+    namespace: tempo-perf-test
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: query-load-generator
+  namespace: tempo-perf-test
+  labels:
+    app: query-load-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: query-load-generator
+  template:
+    metadata:
+      labels:
+        app: query-load-generator
+    spec:
+      serviceAccountName: query-load-account
+      containers:
+        - name: app
+          image: ghcr.io/rubenvp8510/perf-test-tempo-opensearch/query-load-generator:5
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /config-file
+              name: config-file
+              readOnly: true
+          ports:
+            - containerPort: 2112
+              name: metrics
+          env:
+            - name: JAEGER_QUERY_ENDPOINT
+              value: http://tempo-simplest-jaegerui:16686
+            - name: NAMESPACE
+              value: tempo-perf-test
+            - name: QUERY_FILE
+              value: /config-file/queries.txt
+            - name: QUERY_LOOKBACK
+              value: 1h
+            - name: QUERY_DELAY
+              value: 5s
+      volumes:
+        - name: config-file
+          configMap:
+            name: queries
+            items:
+              - key: "queries.txt"
+                path: "queries.txt"

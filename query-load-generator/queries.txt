@@ -1,0 +1,3 @@
+adservice_limit20|/api/search?limit=20&maxDuration&minDuration&service=adservice
+adservice_limit30|/api/search?limit=30&maxDuration&minDuration&service=adservice
+spanfilter3_limit50_one_tag|/api/search?limit=50&lookback=1h&maxDuration&minDuration&service=spanFiller3&tags=http.url="http://spanFiller3/3"

@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generate-traces
+  namespace: tempo-perf-test
+spec:
+  completions: 1
+  parallelism: 1
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      containers:
+        - name: loadgen
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=loadtest
+            - --tps=10
+            - --depth=50
+            - --nspans=50
+            - --runtime=3600s
+            - --ramptime=1s
+            - --tracecount=10000
+            - --protocol=grpc
+            - --sender=otel
+            - --host=tempo-simplest:4317
+            - --loglevel=debug
+            - --insecure
+      restartPolicy: Never
+  backoffLimit: 4
