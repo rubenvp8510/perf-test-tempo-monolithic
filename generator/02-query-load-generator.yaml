@@ -112,7 +112,7 @@ spec:
       serviceAccountName: query-load-account
       containers:
         - name: app
-          image: ghcr.io/rubenvp8510/perf-test-tempo-opensearch/query-load-generator:5
+          image: quay.io/rvargasp/query-load-generator:latest
           imagePullPolicy: Always
           volumeMounts:
             - mountPath: /config-file

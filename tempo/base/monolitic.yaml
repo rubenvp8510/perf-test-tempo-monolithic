@@ -2,8 +2,14 @@ apiVersion: tempo.grafana.com/v1alpha1
 kind: TempoMonolithic
 metadata:
   name: simplest
-  namespace: tempo-perf-test
 spec:
+  resources:
+    limits:
+      memory: 8Gi
+      cpu: 1000m
+    requests:
+      memory: 8Gi
+      cpu: 1000m
   storage:
     traces:
       backend: s3
@@ -13,3 +19,7 @@ spec:
     enabled: true
     route:
       enabled: true
+  observability:
+    metrics:
+      serviceMonitors:
+        enabled: true

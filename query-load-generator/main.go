@@ -161,6 +161,12 @@ func (queryExecutor queryExecutor) run() error {
 		ConstLabels: prometheus.Labels{"name": queryExecutor.name},
 	})
 
+	failCounter := promauto.NewCounter(prometheus.CounterOpts{
+		Namespace:   "query_failures_count",
+		Name:        strings.ReplaceAll(queryExecutor.namespace, "-", "_"),
+		ConstLabels: prometheus.Labels{"name": queryExecutor.name},
+	})
+
 	log.Printf("Going to run: %v\n", req)
 	ticker := time.NewTicker(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 	go func() {
@@ -175,6 +181,7 @@ func (queryExecutor queryExecutor) run() error {
 				queryDuration := time.Since(start).Seconds()
 				reqHist.Observe(queryDuration)
 				if res.StatusCode >= 300 {
+					failCounter.Inc()
 					log.Fatalf("Query failed: req: %v, res: %v", req, res)
 				}
 				log.Printf("%s took %f seconds --> %v\n", req.URL.RawQuery, queryDuration, res)
