@@ -12,7 +12,7 @@ fi
 
 oc apply -f tempo/storate.yaml -n ${NAMESPACE}
 
-oc apply -k tempo/test/$1 -n ${NAMESPACE}
+oc apply -k tempo-stack/stack.yaml -n ${NAMESPACE}
 
 sleep 10
 
