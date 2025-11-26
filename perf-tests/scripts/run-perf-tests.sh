@@ -342,17 +342,20 @@ run_load_test() {
     # Wait for test duration
     wait_for_duration "$duration" "$load_name"
     
-    # Collect metrics
-    log_info "Collecting metrics..."
+    # Collect metrics (with time-series data for the test duration)
+    log_info "Collecting metrics with 1-minute granularity..."
     local raw_output="${RESULTS_DIR}/raw/${load_name}.json"
     mkdir -p "${RESULTS_DIR}/raw"
     
-    "${SCRIPT_DIR}/collect-metrics.sh" "$load_name" "$raw_output"
+    # Extract duration in minutes for time-series query
+    local duration_min
+    duration_min=$(($(echo "$duration" | grep -oE '[0-9]+') ))
+    
+    "${SCRIPT_DIR}/collect-metrics.sh" "$load_name" "$raw_output" "$duration_min"
     
     # Add config info to the raw output
-    local tps duration_min
+    local tps
     tps=$(read_load_config "$load_name" "tps")
-    duration_min=$(($(echo "$duration" | grep -oE '[0-9]+') ))
     
     # Update JSON with config
     local tmp_file

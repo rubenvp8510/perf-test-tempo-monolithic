@@ -7,15 +7,18 @@ Usage: ./generate-charts.py <results_dir>
 Generates:
 - Static PNG charts using matplotlib (for reports/documentation)
 - Interactive HTML dashboard using plotly (for browser viewing)
+- Time-series charts showing per-minute metric data
 """
 
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -50,6 +53,37 @@ plt.rcParams.update({
     'font.family': 'sans-serif',
     'font.size': 11,
 })
+
+
+def load_report_metadata(results_dir: Path) -> dict[str, Any]:
+    """Load the most recent report file to get metadata."""
+    report_files = sorted(results_dir.glob('report-*.json'), reverse=True)
+    if report_files:
+        try:
+            with open(report_files[0]) as f:
+                report = json.load(f)
+                return report.get('report_metadata', {})
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not parse report file: {e}")
+    return {}
+
+
+def get_report_name(metadata: dict[str, Any]) -> str:
+    """Extract a clean report name from metadata."""
+    cluster_info = metadata.get('cluster', {})
+    cluster_name = cluster_info.get('name', '')
+    
+    # Extract the first part before '/' if present (e.g., "tempo-perf-test")
+    if cluster_name:
+        name_parts = cluster_name.split('/')
+        return name_parts[0] if name_parts else cluster_name
+    
+    # Fallback to generated timestamp
+    generated_at = metadata.get('generated_at', '')
+    if generated_at:
+        return f"Report {generated_at[:10]}"
+    
+    return "Tempo Performance Test"
 
 
 def load_test_results(results_dir: Path) -> list[dict[str, Any]]:
@@ -100,11 +134,66 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
     return df
 
 
+def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
+    """Extract time-series data from test results into a DataFrame."""
+    rows = []
+    
+    for r in results:
+        load_name = r.get('load_name', 'unknown')
+        timeseries = r.get('timeseries', {})
+        
+        # Skip if no timeseries data
+        if not timeseries or not timeseries.get('cpu_cores'):
+            continue
+        
+        # Get all timeseries arrays
+        cpu_data = {item['timestamp']: item['value'] for item in timeseries.get('cpu_cores', [])}
+        memory_data = {item['timestamp']: item['value'] for item in timeseries.get('memory_gb', [])}
+        spans_data = {item['timestamp']: item['value'] for item in timeseries.get('spans_per_second', [])}
+        bytes_data = {item['timestamp']: item['value'] for item in timeseries.get('bytes_per_second', [])}
+        p50_data = {item['timestamp']: item['value'] for item in timeseries.get('p50_latency_seconds', [])}
+        p90_data = {item['timestamp']: item['value'] for item in timeseries.get('p90_latency_seconds', [])}
+        p99_data = {item['timestamp']: item['value'] for item in timeseries.get('p99_latency_seconds', [])}
+        failures_data = {item['timestamp']: item['value'] for item in timeseries.get('query_failures_per_second', [])}
+        dropped_data = {item['timestamp']: item['value'] for item in timeseries.get('dropped_spans_per_second', [])}
+        
+        # Use CPU timestamps as reference
+        for ts in sorted(cpu_data.keys()):
+            rows.append({
+                'load_name': load_name,
+                'timestamp': ts,
+                'datetime': datetime.fromtimestamp(ts),
+                'cpu_cores': cpu_data.get(ts, 0),
+                'memory_gb': memory_data.get(ts, 0),
+                'spans_per_sec': spans_data.get(ts, 0),
+                'bytes_per_sec': bytes_data.get(ts, 0),
+                'p50_ms': p50_data.get(ts, 0) * 1000,
+                'p90_ms': p90_data.get(ts, 0) * 1000,
+                'p99_ms': p99_data.get(ts, 0) * 1000,
+                'query_failures': failures_data.get(ts, 0),
+                'dropped_spans': dropped_data.get(ts, 0),
+            })
+    
+    if not rows:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(rows)
+    df = df.sort_values(['load_name', 'timestamp']).reset_index(drop=True)
+    
+    # Add relative minute column per load
+    for load in df['load_name'].unique():
+        mask = df['load_name'] == load
+        min_ts = df.loc[mask, 'timestamp'].min()
+        df.loc[mask, 'minute'] = ((df.loc[mask, 'timestamp'] - min_ts) / 60).astype(int) + 1
+    
+    return df
+
+
 # =============================================================================
 # Static Chart Generation (matplotlib)
 # =============================================================================
 
-def create_latency_chart(df: pd.DataFrame, output_dir: Path) -> None:
+def create_latency_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Create latency comparison bar chart."""
     fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -120,7 +209,7 @@ def create_latency_chart(df: pd.DataFrame, output_dir: Path) -> None:
 
     ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
     ax.set_ylabel('Latency (ms)', fontsize=12, fontweight='bold')
-    ax.set_title('Query Latency by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title(f'{report_name}\nQuery Latency by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
     ax.legend(loc='upper left', framealpha=0.9)
@@ -143,7 +232,7 @@ def create_latency_chart(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"  ✅ Created: {output_path}")
 
 
-def create_resources_chart(df: pd.DataFrame, output_dir: Path) -> None:
+def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Create resource usage dual-axis chart."""
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
@@ -164,7 +253,7 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path) -> None:
     ax2.set_ylabel('Memory (GB)', fontsize=12, fontweight='bold', color=COLORS['secondary'])
     ax2.tick_params(axis='y', labelcolor=COLORS['secondary'])
 
-    ax1.set_title('Resource Usage by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax1.set_title(f'{report_name}\nResource Usage by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
     ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
 
@@ -182,7 +271,7 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"  ✅ Created: {output_path}")
 
 
-def create_throughput_chart(df: pd.DataFrame, output_dir: Path) -> None:
+def create_throughput_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Create throughput analysis chart with efficiency calculation."""
     fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -202,7 +291,7 @@ def create_throughput_chart(df: pd.DataFrame, output_dir: Path) -> None:
 
     ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
     ax.set_ylabel('Spans per Second', fontsize=12, fontweight='bold')
-    ax.set_title('Throughput: Expected vs Actual', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title(f'{report_name}\nThroughput: Expected vs Actual', fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
     ax.legend(loc='upper left', framealpha=0.9)
@@ -226,7 +315,7 @@ def create_throughput_chart(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"  ✅ Created: {output_path}")
 
 
-def create_error_chart(df: pd.DataFrame, output_dir: Path) -> None:
+def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Create error rates chart."""
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
@@ -249,7 +338,7 @@ def create_error_chart(df: pd.DataFrame, output_dir: Path) -> None:
     ax2.set_ylabel('Dropped Spans/sec', fontsize=12, fontweight='bold', color=COLORS['accent'])
     ax2.tick_params(axis='y', labelcolor=COLORS['accent'])
 
-    ax1.set_title('Error Metrics by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax1.set_title(f'{report_name}\nError Metrics by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
     ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
 
@@ -267,23 +356,206 @@ def create_error_chart(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"  ✅ Created: {output_path}")
 
 
-def generate_static_charts(df: pd.DataFrame, output_dir: Path) -> None:
+def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Generate all static PNG charts."""
     print("\n📊 Generating static charts (PNG)...")
     charts_dir = output_dir / 'charts'
     charts_dir.mkdir(parents=True, exist_ok=True)
 
-    create_latency_chart(df, charts_dir)
-    create_resources_chart(df, charts_dir)
-    create_throughput_chart(df, charts_dir)
-    create_error_chart(df, charts_dir)
+    create_latency_chart(df, charts_dir, report_name)
+    create_resources_chart(df, charts_dir, report_name)
+    create_throughput_chart(df, charts_dir, report_name)
+    create_error_chart(df, charts_dir, report_name)
+
+
+# =============================================================================
+# Time-Series Chart Generation (matplotlib)
+# =============================================================================
+
+LOAD_COLORS = [COLORS['primary'], COLORS['secondary'], COLORS['tertiary'], 
+               COLORS['quaternary'], COLORS['accent'], COLORS['success']]
+
+
+def create_timeseries_latency_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Create time-series latency chart showing P50/P90/P99 over time."""
+    if ts_df.empty:
+        return
+    
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+    
+    loads = ts_df['load_name'].unique()
+    
+    for idx, (ax, metric, title) in enumerate(zip(
+        axes, 
+        ['p50_ms', 'p90_ms', 'p99_ms'],
+        ['P50 Latency', 'P90 Latency', 'P99 Latency']
+    )):
+        for i, load in enumerate(loads):
+            load_data = ts_df[ts_df['load_name'] == load]
+            ax.plot(load_data['minute'], load_data[metric], 
+                   label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                   linewidth=2, marker='o', markersize=3)
+        
+        ax.set_ylabel(f'{title} (ms)', fontsize=11, fontweight='bold')
+        ax.set_title(f'{title} Over Time', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', framealpha=0.9)
+        ax.grid(True, linestyle='--', alpha=0.7)
+    
+    axes[0].set_title(f'{report_name}\nP50 Latency Over Time', fontsize=12, fontweight='bold')
+    axes[-1].set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    
+    plt.tight_layout()
+    output_path = output_dir / 'timeseries_latency.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Create time-series resource usage chart showing CPU and memory over time."""
+    if ts_df.empty:
+        return
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    
+    loads = ts_df['load_name'].unique()
+    
+    # CPU chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax1.plot(load_data['minute'], load_data['cpu_cores'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax1.set_ylabel('CPU (cores)', fontsize=11, fontweight='bold')
+    ax1.set_title(f'{report_name}\nCPU Usage Over Time', fontsize=12, fontweight='bold')
+    ax1.legend(loc='upper right', framealpha=0.9)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Memory chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax2.plot(load_data['minute'], load_data['memory_gb'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax2.set_ylabel('Memory (GB)', fontsize=11, fontweight='bold')
+    ax2.set_title('Memory Usage Over Time', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax2.legend(loc='upper right', framealpha=0.9)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / 'timeseries_resources.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_timeseries_throughput_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Create time-series throughput chart showing spans/sec over time."""
+    if ts_df.empty:
+        return
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    
+    loads = ts_df['load_name'].unique()
+    
+    # Spans/sec chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax1.plot(load_data['minute'], load_data['spans_per_sec'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax1.set_ylabel('Spans/sec', fontsize=11, fontweight='bold')
+    ax1.set_title(f'{report_name}\nThroughput (Spans/sec) Over Time', fontsize=12, fontweight='bold')
+    ax1.legend(loc='upper right', framealpha=0.9)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Bytes/sec chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        # Convert to KB/sec for readability
+        ax2.plot(load_data['minute'], load_data['bytes_per_sec'] / 1024, 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax2.set_ylabel('KB/sec', fontsize=11, fontweight='bold')
+    ax2.set_title('Throughput (KB/sec) Over Time', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax2.legend(loc='upper right', framealpha=0.9)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / 'timeseries_throughput.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Create time-series error metrics chart."""
+    if ts_df.empty:
+        return
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    
+    loads = ts_df['load_name'].unique()
+    
+    # Query failures chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax1.plot(load_data['minute'], load_data['query_failures'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax1.set_ylabel('Query Failures/sec', fontsize=11, fontweight='bold')
+    ax1.set_title(f'{report_name}\nQuery Failures Over Time', fontsize=12, fontweight='bold')
+    ax1.legend(loc='upper right', framealpha=0.9)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Dropped spans chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax2.plot(load_data['minute'], load_data['dropped_spans'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax2.set_ylabel('Dropped Spans/sec', fontsize=11, fontweight='bold')
+    ax2.set_title('Dropped Spans Over Time', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax2.legend(loc='upper right', framealpha=0.9)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / 'timeseries_errors.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Generate all time-series PNG charts."""
+    if ts_df.empty:
+        print("\n⚠️  No time-series data found, skipping time-series charts")
+        return
+    
+    print("\n📈 Generating time-series charts (PNG)...")
+    charts_dir = output_dir / 'charts'
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    
+    create_timeseries_latency_chart(ts_df, charts_dir, report_name)
+    create_timeseries_resources_chart(ts_df, charts_dir, report_name)
+    create_timeseries_throughput_chart(ts_df, charts_dir, report_name)
+    create_timeseries_errors_chart(ts_df, charts_dir, report_name)
 
 
 # =============================================================================
 # Interactive Dashboard Generation (plotly)
 # =============================================================================
 
-def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path) -> None:
+def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Generate interactive HTML dashboard with plotly."""
     print("\n🌐 Generating interactive dashboard (HTML)...")
 
@@ -361,7 +633,7 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path) -> None:
     # Update layout
     fig.update_layout(
         title=dict(
-            text='<b>Tempo Performance Test Dashboard</b>',
+            text=f'<b>{report_name}</b><br><span style="font-size:16px">Performance Test Dashboard</span>',
             font=dict(size=24, color=COLORS['text']),
             x=0.5, xanchor='center'
         ),
@@ -417,11 +689,183 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path) -> None:
     print(f"  ✅ Created: {output_path}")
 
 
+def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+    """Generate interactive HTML dashboard with time-series data."""
+    if ts_df.empty:
+        print("\n⚠️  No time-series data found, skipping time-series dashboard")
+        return
+    
+    print("\n🌐 Generating time-series dashboard (HTML)...")
+    
+    loads = ts_df['load_name'].unique()
+    
+    # Create subplot figure with 4 rows
+    fig = make_subplots(
+        rows=4, cols=1,
+        subplot_titles=(
+            'Query Latency Over Time (P50, P90, P99)',
+            'Resource Usage Over Time (CPU & Memory)',
+            'Throughput Over Time (Spans/sec)',
+            'Error Metrics Over Time'
+        ),
+        vertical_spacing=0.08,
+        specs=[[{"secondary_y": False}], [{"secondary_y": True}], 
+               [{"secondary_y": False}], [{"secondary_y": True}]]
+    )
+    
+    # Row 1: Latency metrics
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        # P99 (solid)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['p99_ms'],
+            name=f'{load} P99', mode='lines+markers',
+            line=dict(color=color, width=2),
+            marker=dict(size=4),
+            legendgroup=load,
+        ), row=1, col=1)
+        
+        # P90 (dashed)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['p90_ms'],
+            name=f'{load} P90', mode='lines',
+            line=dict(color=color, width=1.5, dash='dash'),
+            legendgroup=load, showlegend=False,
+        ), row=1, col=1)
+        
+        # P50 (dotted)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['p50_ms'],
+            name=f'{load} P50', mode='lines',
+            line=dict(color=color, width=1, dash='dot'),
+            legendgroup=load, showlegend=False,
+        ), row=1, col=1)
+    
+    # Row 2: Resource metrics (dual axis)
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        # CPU (primary y-axis)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['cpu_cores'],
+            name=f'{load} CPU', mode='lines+markers',
+            line=dict(color=color, width=2),
+            marker=dict(size=4),
+            legendgroup=f'{load}_res',
+        ), row=2, col=1, secondary_y=False)
+        
+        # Memory (secondary y-axis)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['memory_gb'],
+            name=f'{load} Memory', mode='lines',
+            line=dict(color=color, width=2, dash='dash'),
+            legendgroup=f'{load}_res', showlegend=False,
+        ), row=2, col=1, secondary_y=True)
+    
+    # Row 3: Throughput
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['spans_per_sec'],
+            name=f'{load} Spans/sec', mode='lines+markers',
+            line=dict(color=color, width=2),
+            marker=dict(size=4),
+            fill='tozeroy', fillcolor=f'rgba{tuple(list(bytes.fromhex(color[1:])) + [0.1])}',
+            legendgroup=f'{load}_tp',
+        ), row=3, col=1)
+    
+    # Row 4: Error metrics (dual axis)
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        # Query failures (primary y-axis)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['query_failures'],
+            name=f'{load} Failures', mode='lines+markers',
+            line=dict(color=color, width=2),
+            marker=dict(size=4),
+            legendgroup=f'{load}_err',
+        ), row=4, col=1, secondary_y=False)
+        
+        # Dropped spans (secondary y-axis)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['dropped_spans'],
+            name=f'{load} Dropped', mode='lines',
+            line=dict(color=color, width=2, dash='dash'),
+            legendgroup=f'{load}_err', showlegend=False,
+        ), row=4, col=1, secondary_y=True)
+    
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text=f'<b>{report_name}</b><br><span style="font-size:16px">Time Series Dashboard</span>',
+            font=dict(size=24, color=COLORS['text']),
+            x=0.5, xanchor='center'
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=-0.08,
+            xanchor='center',
+            x=0.5,
+            bgcolor=COLORS['surface'],
+            bordercolor=COLORS['text'],
+            borderwidth=1,
+            font=dict(color=COLORS['text'], size=10)
+        ),
+        paper_bgcolor=COLORS['background'],
+        plot_bgcolor=COLORS['surface'],
+        font=dict(color=COLORS['text']),
+        height=1400,
+        hovermode='x unified'
+    )
+    
+    # Update axes
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='#333355',
+        tickfont=dict(color=COLORS['text']),
+        title_text="Time (minutes)", row=4, col=1
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='#333355',
+        tickfont=dict(color=COLORS['text'])
+    )
+    
+    # Add axis labels
+    fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
+    fig.update_yaxes(title_text="CPU (cores)", row=2, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Memory (GB)", row=2, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="Spans/sec", row=3, col=1)
+    fig.update_yaxes(title_text="Failures/sec", row=4, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Dropped/sec", row=4, col=1, secondary_y=True)
+    
+    # Save dashboard
+    output_path = output_dir / 'timeseries-dashboard.html'
+    fig.write_html(
+        str(output_path),
+        include_plotlyjs=True,
+        full_html=True,
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+        }
+    )
+    print(f"  ✅ Created: {output_path}")
+
+
 # =============================================================================
 # Summary Table Generation
 # =============================================================================
 
-def generate_summary_table(df: pd.DataFrame, output_dir: Path) -> None:
+def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Generate an HTML summary table of results."""
     print("\n📋 Generating summary table...")
 
@@ -434,7 +878,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path) -> None:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Performance Test Summary</title>
+    <title>{report_name} - Performance Test Summary</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -446,7 +890,14 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path) -> None:
         h1 {{
             text-align: center;
             color: {COLORS['primary']};
+            margin-bottom: 10px;
+        }}
+        h2 {{
+            text-align: center;
+            color: {COLORS['text']};
             margin-bottom: 30px;
+            font-weight: normal;
+            font-size: 1.1em;
         }}
         .container {{
             max-width: 1200px;
@@ -487,7 +938,8 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path) -> None:
 </head>
 <body>
     <div class="container">
-        <h1>Tempo Performance Test Summary</h1>
+        <h1>{report_name}</h1>
+        <h2>Performance Test Summary</h2>
         <table>
             <thead>
                 <tr>
@@ -560,6 +1012,11 @@ def main():
     print("=" * 60)
     print(f"\nResults directory: {results_dir}")
 
+    # Load report metadata and extract report name
+    metadata = load_report_metadata(results_dir)
+    report_name = get_report_name(metadata)
+    print(f"Report name: {report_name}")
+
     # Load and process results
     results = load_test_results(results_dir)
     print(f"Loaded {len(results)} test result(s)")
@@ -567,18 +1024,29 @@ def main():
     df = results_to_dataframe(results)
     print(f"Processed data for loads: {', '.join(df['load_name'].tolist())}")
 
+    # Extract time-series data
+    ts_df = extract_timeseries_data(results)
+    if not ts_df.empty:
+        print(f"Extracted {len(ts_df)} time-series data points")
+    else:
+        print("No time-series data found (legacy format)")
+
     # Generate outputs
-    generate_static_charts(df, results_dir)
-    generate_interactive_dashboard(df, results_dir)
-    generate_summary_table(df, results_dir)
+    generate_static_charts(df, results_dir, report_name)
+    generate_timeseries_charts(ts_df, results_dir, report_name)
+    generate_interactive_dashboard(df, results_dir, report_name)
+    generate_timeseries_dashboard(ts_df, results_dir, report_name)
+    generate_summary_table(df, results_dir, report_name)
 
     print("\n" + "=" * 60)
     print("  Chart generation complete!")
     print("=" * 60)
     print(f"\nOutputs:")
-    print(f"  📊 Static charts: {results_dir}/charts/")
-    print(f"  🌐 Dashboard:     {results_dir}/dashboard.html")
-    print(f"  📋 Summary:       {results_dir}/summary.html")
+    print(f"  📊 Static charts:          {results_dir}/charts/")
+    print(f"  📈 Time-series charts:     {results_dir}/charts/timeseries_*.png")
+    print(f"  🌐 Summary Dashboard:      {results_dir}/dashboard.html")
+    print(f"  🌐 Time-Series Dashboard:  {results_dir}/timeseries-dashboard.html")
+    print(f"  📋 Summary Table:          {results_dir}/summary.html")
 
 
 if __name__ == '__main__':

@@ -84,6 +84,103 @@ generate_csv() {
 }
 
 #
+# Generate time-series CSV (1-minute granularity data)
+#
+generate_timeseries_csv() {
+    local results_dir="$1"
+    local output_file="$2"
+    
+    log_info "Generating time-series CSV: $output_file"
+    
+    # Write CSV header
+    echo "load_name,timestamp,datetime,minute,cpu_cores,memory_gb,spans_per_sec,bytes_per_sec,p50_latency_ms,p90_latency_ms,p99_latency_ms,query_failures_per_sec,dropped_spans_per_sec" > "$output_file"
+    
+    local total_rows=0
+    
+    # Process each raw JSON file
+    local raw_file
+    for raw_file in "$results_dir"/raw/*.json; do
+        if [ ! -f "$raw_file" ]; then
+            continue
+        fi
+        
+        local load_name
+        load_name=$(jq -r '.load_name // "unknown"' "$raw_file")
+        
+        # Check if timeseries data exists (use spans_per_second as reference - most reliable)
+        local has_timeseries
+        has_timeseries=$(jq -r '.timeseries.spans_per_second | length' "$raw_file" 2>/dev/null || echo "0")
+        
+        if [ "$has_timeseries" = "0" ] || [ "$has_timeseries" = "null" ]; then
+            log_warn "No time-series data found for load: $load_name (legacy format?)"
+            continue
+        fi
+        
+        # Extract time-series data and format as CSV rows using jq
+        # Combines all metrics by timestamp
+        jq -r --arg load "$load_name" '
+            # Get all timeseries arrays (use spans_per_second as reference - most reliable)
+            (.timeseries.cpu_cores // []) as $cpu |
+            (.timeseries.memory_gb // []) as $mem |
+            (.timeseries.spans_per_second // []) as $spans |
+            (.timeseries.bytes_per_second // []) as $bytes |
+            (.timeseries.p50_latency_seconds // []) as $p50 |
+            (.timeseries.p90_latency_seconds // []) as $p90 |
+            (.timeseries.p99_latency_seconds // []) as $p99 |
+            (.timeseries.query_failures_per_second // []) as $failures |
+            (.timeseries.dropped_spans_per_second // []) as $dropped |
+            
+            # Create lookup maps by timestamp
+            ($cpu | map({(.timestamp | tostring): .value}) | add // {}) as $cpu_map |
+            ($mem | map({(.timestamp | tostring): .value}) | add // {}) as $mem_map |
+            ($spans | map({(.timestamp | tostring): .value}) | add // {}) as $spans_map |
+            ($bytes | map({(.timestamp | tostring): .value}) | add // {}) as $bytes_map |
+            ($p50 | map({(.timestamp | tostring): .value}) | add // {}) as $p50_map |
+            ($p90 | map({(.timestamp | tostring): .value}) | add // {}) as $p90_map |
+            ($p99 | map({(.timestamp | tostring): .value}) | add // {}) as $p99_map |
+            ($failures | map({(.timestamp | tostring): .value}) | add // {}) as $failures_map |
+            ($dropped | map({(.timestamp | tostring): .value}) | add // {}) as $dropped_map |
+            
+            # Get unique timestamps from spans_per_second (most reliable reference array)
+            ($spans | map(.timestamp) | sort) as $timestamps |
+            
+            # Generate CSV rows
+            $timestamps | to_entries[] |
+            .key as $idx |
+            .value as $ts |
+            ($ts | tostring) as $ts_str |
+            
+            [
+                $load,
+                $ts,
+                ($ts | todateiso8601),
+                ($idx + 1),
+                ($cpu_map[$ts_str] // 0),
+                ($mem_map[$ts_str] // 0),
+                ($spans_map[$ts_str] // 0),
+                ($bytes_map[$ts_str] // 0),
+                (($p50_map[$ts_str] // 0) * 1000),  # Convert to ms
+                (($p90_map[$ts_str] // 0) * 1000),  # Convert to ms
+                (($p99_map[$ts_str] // 0) * 1000),  # Convert to ms
+                ($failures_map[$ts_str] // 0),
+                ($dropped_map[$ts_str] // 0)
+            ] | @csv
+        ' "$raw_file" >> "$output_file" 2>/dev/null || log_warn "Failed to extract time-series for $load_name"
+        
+        local rows_added
+        rows_added=$(jq -r '.timeseries.spans_per_second | length' "$raw_file" 2>/dev/null || echo "0")
+        total_rows=$((total_rows + rows_added))
+    done
+    
+    if [ "$total_rows" -gt 0 ]; then
+        log_info "Time-series CSV generated with $total_rows data points (1-minute intervals)"
+    else
+        log_warn "No time-series data found in any results file"
+        rm -f "$output_file"
+    fi
+}
+
+#
 # Generate JSON report
 #
 generate_json() {
@@ -209,6 +306,7 @@ EOF
 print_summary() {
     local csv_file="$1"
     local json_file="$2"
+    local timeseries_file="$3"
     
     echo ""
     echo "=============================================="
@@ -217,12 +315,20 @@ print_summary() {
     echo ""
     
     if [ -f "$csv_file" ]; then
-        echo "CSV Report: $csv_file"
+        echo "Summary CSV: $csv_file"
         echo ""
-        echo "Results:"
-        echo "--------"
+        echo "Results (aggregated per load):"
+        echo "------------------------------"
         # Print CSV as formatted table
         column -t -s',' "$csv_file" | head -20
+        echo ""
+    fi
+    
+    if [ -f "$timeseries_file" ]; then
+        local sample_count
+        sample_count=$(( $(wc -l < "$timeseries_file") - 1 ))
+        echo "Time-Series CSV (1-minute intervals): $timeseries_file"
+        echo "  Total data points: $sample_count"
         echo ""
     fi
     
@@ -273,7 +379,8 @@ main() {
         echo "Usage: $0 <results_dir> [output_prefix] [--no-charts]"
         echo ""
         echo "Example: $0 results report"
-        echo "  Creates: results/report-TIMESTAMP.csv"
+        echo "  Creates: results/report-TIMESTAMP.csv              (summary per load)"
+        echo "           results/report-TIMESTAMP-timeseries.csv   (1-minute granularity)"
         echo "           results/report-TIMESTAMP.json"
         echo "           results/charts/*.png"
         echo "           results/dashboard.html"
@@ -319,6 +426,7 @@ main() {
     fi
     
     local csv_file="${results_dir}/${output_prefix}-${timestamp}.csv"
+    local timeseries_file="${results_dir}/${output_prefix}-${timestamp}-timeseries.csv"
     local json_file="${results_dir}/${output_prefix}-${timestamp}.json"
     
     echo "=============================================="
@@ -327,6 +435,7 @@ main() {
     echo ""
     
     generate_csv "$results_dir" "$csv_file"
+    generate_timeseries_csv "$results_dir" "$timeseries_file"
     generate_json "$results_dir" "$json_file"
     
     # Generate charts unless skipped
@@ -334,7 +443,7 @@ main() {
         generate_charts "$results_dir"
     fi
     
-    print_summary "$csv_file" "$json_file"
+    print_summary "$csv_file" "$json_file" "$timeseries_file"
     
     log_info "Report generation complete!"
 }

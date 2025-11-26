@@ -4,13 +4,15 @@ set -euo pipefail
 #
 # collect-metrics.sh - Collect performance metrics from Prometheus
 #
-# Usage: ./collect-metrics.sh <load_name> <output_file>
+# Usage: ./collect-metrics.sh <load_name> <output_file> [duration_minutes]
 #
 # This script queries Prometheus for:
 # - Query latencies (p50, p90, p99)
 # - Resource utilization (CPU, memory)
 # - Throughput (spans/second)
 # - Error rates
+#
+# Uses range queries to collect per-minute time-series data.
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,7 +54,7 @@ get_prometheus_access() {
 }
 
 #
-# Execute a Prometheus query
+# Execute a Prometheus instant query
 #
 prom_query() {
     local query="$1"
@@ -64,6 +66,40 @@ prom_query() {
         "${PROMETHEUS_URL}/api/v1/query" 2>/dev/null)
     
     echo "$result"
+}
+
+#
+# Execute a Prometheus range query (returns time-series data)
+#
+prom_range_query() {
+    local query="$1"
+    local start="$2"
+    local end="$3"
+    local step="${4:-60}"  # Default 1 minute step
+    local result
+    
+    result=$(curl -sk \
+        -H "Authorization: Bearer $TOKEN" \
+        --data-urlencode "query=${query}" \
+        --data-urlencode "start=${start}" \
+        --data-urlencode "end=${end}" \
+        --data-urlencode "step=${step}" \
+        "${PROMETHEUS_URL}/api/v1/query_range" 2>/dev/null)
+    
+    echo "$result"
+}
+
+#
+# Extract time-series values from Prometheus range query response
+# Returns JSON array of {timestamp, value} objects
+#
+extract_timeseries() {
+    local response="$1"
+    
+    echo "$response" | jq -r '
+        .data.result[0].values // [] | 
+        map({timestamp: .[0], value: (.[1] | tonumber)})
+    ' 2>/dev/null || echo "[]"
 }
 
 #
@@ -184,7 +220,90 @@ collect_error_metrics() {
 }
 
 #
-# Write metrics to JSON file
+# Collect time-series data using range queries (1-minute granularity)
+#
+collect_timeseries_data() {
+    local duration_minutes="$1"
+    
+    log_info "Collecting time-series data (${duration_minutes} minutes, 1-minute intervals)..."
+    
+    local end_time start_time
+    end_time=$(date +%s)
+    start_time=$((end_time - duration_minutes * 60))
+    
+    # CPU time-series (use 5m rate window for reliability - 1m can miss samples)
+    local cpu_response
+    cpu_response=$(prom_range_query \
+        "sum(rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[5m]))" \
+        "$start_time" "$end_time" "60")
+    TS_CPU=$(extract_timeseries "$cpu_response")
+    
+    # Memory time-series (convert to GB in jq)
+    local mem_response
+    mem_response=$(prom_range_query \
+        "sum(container_memory_working_set_bytes{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"})" \
+        "$start_time" "$end_time" "60")
+    TS_MEMORY=$(echo "$mem_response" | jq -r '
+        .data.result[0].values // [] | 
+        map({timestamp: .[0], value: ((.[1] | tonumber) / 1073741824)})
+    ' 2>/dev/null || echo "[]")
+    
+    # Spans/sec time-series
+    local spans_response
+    spans_response=$(prom_range_query \
+        "sum(rate(tempo_distributor_spans_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_SPANS=$(extract_timeseries "$spans_response")
+    
+    # Bytes/sec time-series
+    local bytes_response
+    bytes_response=$(prom_range_query \
+        "sum(rate(tempo_distributor_bytes_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_BYTES=$(extract_timeseries "$bytes_response")
+    
+    # P50 latency time-series
+    local p50_response
+    p50_response=$(prom_range_query \
+        "histogram_quantile(0.50, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[1m])) by (le))" \
+        "$start_time" "$end_time" "60")
+    TS_P50=$(extract_timeseries "$p50_response")
+    
+    # P90 latency time-series
+    local p90_response
+    p90_response=$(prom_range_query \
+        "histogram_quantile(0.90, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[1m])) by (le))" \
+        "$start_time" "$end_time" "60")
+    TS_P90=$(extract_timeseries "$p90_response")
+    
+    # P99 latency time-series
+    local p99_response
+    p99_response=$(prom_range_query \
+        "histogram_quantile(0.99, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[1m])) by (le))" \
+        "$start_time" "$end_time" "60")
+    TS_P99=$(extract_timeseries "$p99_response")
+    
+    # Query failures time-series
+    local failures_response
+    failures_response=$(prom_range_query \
+        "sum(rate(query_failures_count_${PERF_TEST_NAMESPACE//-/_}[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_FAILURES=$(extract_timeseries "$failures_response")
+    
+    # Dropped spans time-series
+    local dropped_response
+    dropped_response=$(prom_range_query \
+        "sum(rate(tempo_distributor_spans_dropped_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_DROPPED=$(extract_timeseries "$dropped_response")
+    
+    local sample_count
+    sample_count=$(echo "$TS_CPU" | jq 'length' 2>/dev/null || echo "0")
+    log_info "Collected $sample_count time-series data points"
+}
+
+#
+# Write metrics to JSON file (includes time-series data)
 #
 write_metrics_json() {
     local load_name="$1"
@@ -192,32 +311,65 @@ write_metrics_json() {
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    cat > "$output_file" <<EOF
-{
-  "timestamp": "${timestamp}",
-  "load_name": "${load_name}",
-  "metrics": {
-    "query_latencies": {
-      "p50_seconds": ${P50_LATENCY:-0},
-      "p90_seconds": ${P90_LATENCY:-0},
-      "p99_seconds": ${P99_LATENCY:-0}
-    },
-    "resources": {
-      "avg_cpu_cores": ${AVG_CPU:-0},
-      "max_memory_gb": ${MAX_MEMORY_GB:-0}
-    },
-    "throughput": {
-      "spans_per_second": ${SPANS_PER_SEC:-0},
-      "bytes_per_second": ${BYTES_PER_SEC:-0}
-    },
-    "errors": {
-      "query_failures_per_second": ${QUERY_FAILURES:-0},
-      "error_rate_percent": ${ERROR_RATE:-0},
-      "dropped_spans_per_second": ${DROPPED_SPANS:-0}
-    }
-  }
-}
-EOF
+    # Build JSON with jq to properly handle time-series arrays
+    jq -n \
+        --arg timestamp "$timestamp" \
+        --arg load_name "$load_name" \
+        --argjson p50 "${P50_LATENCY:-0}" \
+        --argjson p90 "${P90_LATENCY:-0}" \
+        --argjson p99 "${P99_LATENCY:-0}" \
+        --argjson cpu "${AVG_CPU:-0}" \
+        --argjson mem "${MAX_MEMORY_GB:-0}" \
+        --argjson spans "${SPANS_PER_SEC:-0}" \
+        --argjson bytes "${BYTES_PER_SEC:-0}" \
+        --argjson failures "${QUERY_FAILURES:-0}" \
+        --argjson error_rate "${ERROR_RATE:-0}" \
+        --argjson dropped "${DROPPED_SPANS:-0}" \
+        --argjson ts_cpu "${TS_CPU:-[]}" \
+        --argjson ts_memory "${TS_MEMORY:-[]}" \
+        --argjson ts_spans "${TS_SPANS:-[]}" \
+        --argjson ts_bytes "${TS_BYTES:-[]}" \
+        --argjson ts_p50 "${TS_P50:-[]}" \
+        --argjson ts_p90 "${TS_P90:-[]}" \
+        --argjson ts_p99 "${TS_P99:-[]}" \
+        --argjson ts_failures "${TS_FAILURES:-[]}" \
+        --argjson ts_dropped "${TS_DROPPED:-[]}" \
+        '{
+          timestamp: $timestamp,
+          load_name: $load_name,
+          metrics: {
+            query_latencies: {
+              p50_seconds: $p50,
+              p90_seconds: $p90,
+              p99_seconds: $p99
+            },
+            resources: {
+              avg_cpu_cores: $cpu,
+              max_memory_gb: $mem
+            },
+            throughput: {
+              spans_per_second: $spans,
+              bytes_per_second: $bytes
+            },
+            errors: {
+              query_failures_per_second: $failures,
+              error_rate_percent: $error_rate,
+              dropped_spans_per_second: $dropped
+            }
+          },
+          timeseries: {
+            interval_seconds: 60,
+            cpu_cores: $ts_cpu,
+            memory_gb: $ts_memory,
+            spans_per_second: $ts_spans,
+            bytes_per_second: $ts_bytes,
+            p50_latency_seconds: $ts_p50,
+            p90_latency_seconds: $ts_p90,
+            p99_latency_seconds: $ts_p99,
+            query_failures_per_second: $ts_failures,
+            dropped_spans_per_second: $ts_dropped
+          }
+        }' > "$output_file"
     
     log_info "Metrics written to: $output_file"
 }
@@ -227,20 +379,27 @@ EOF
 #
 main() {
     if [ $# -lt 2 ]; then
-        echo "Usage: $0 <load_name> <output_file>"
+        echo "Usage: $0 <load_name> <output_file> [duration_minutes]"
         echo ""
-        echo "Example: $0 medium results/raw/medium.json"
+        echo "Example: $0 medium results/raw/medium.json 30"
+        echo ""
+        echo "Arguments:"
+        echo "  load_name         Name of the load test"
+        echo "  output_file       Path to output JSON file"
+        echo "  duration_minutes  Duration to query for time-series data (default: 30)"
         exit 1
     fi
     
     local load_name="$1"
     local output_file="$2"
+    local duration_minutes="${3:-30}"
     
     # Create output directory if needed
     mkdir -p "$(dirname "$output_file")"
     
     echo "=============================================="
     echo "Collecting metrics for load: $load_name"
+    echo "Time-series range: ${duration_minutes} minutes"
     echo "=============================================="
     echo ""
     
@@ -257,11 +416,23 @@ main() {
     DROPPED_SPANS="0"
     TOTAL_QUERIES="0"
     
+    # Initialize time-series variables
+    TS_CPU="[]"
+    TS_MEMORY="[]"
+    TS_SPANS="[]"
+    TS_BYTES="[]"
+    TS_P50="[]"
+    TS_P90="[]"
+    TS_P99="[]"
+    TS_FAILURES="[]"
+    TS_DROPPED="[]"
+    
     get_prometheus_access
     collect_query_latencies
     collect_resource_metrics
     collect_throughput_metrics
     collect_error_metrics
+    collect_timeseries_data "$duration_minutes"
     write_metrics_json "$load_name" "$output_file"
     
     echo ""
