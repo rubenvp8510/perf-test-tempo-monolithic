@@ -33,10 +33,6 @@ spec:
       "links": [],
       "panels": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "2d392a0d-acc5-4a7c-b380-3228d7441fb3"
-          },
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -123,23 +119,6 @@ spec:
               "legendFormat": "P95",
               "range": true,
               "refId": "A",
-              "useBackend": false
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "2d392a0d-acc5-4a7c-b380-3228d7441fb3"
-              },
-              "disableTextWrap": false,
-              "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(query_load_test_tempo_perf_test_bucket[5m])) by (le))",
-              "fullMetaSearch": false,
-              "hide": false,
-              "includeNullMetadata": true,
-              "instant": false,
-              "legendFormat": "P99",
-              "range": true,
-              "refId": "B",
               "useBackend": false
             }
           ],
@@ -338,10 +317,6 @@ spec:
               "useBackend": false
             },
             {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "2d392a0d-acc5-4a7c-b380-3228d7441fb3"
-              },
               "disableTextWrap": false,
               "editorMode": "builder",
               "expr": "rate(tempo_receiver_refused_spans[1m])",
@@ -448,7 +423,7 @@ spec:
               },
               "disableTextWrap": false,
               "editorMode": "code",
-              "expr": "(\n  sum by (pod) (rate(container_cpu_usage_seconds_total{pod=\"tempo-simplest-0\", container!=\"\"}[5m]))\n  /\n  sum by (pod) (kube_pod_container_resource_limits{pod=\"tempo-simplest-0\", resource=\"cpu\"})\n) * 100",
+              "expr": "(sum by (pod) (rate(container_cpu_usage_seconds_total{pod=\"tempo-simplest-0\", container!=\"\"}[5m]))) * 100",
               "fullMetaSearch": false,
               "includeNullMetadata": true,
               "legendFormat": "__auto",
@@ -556,6 +531,104 @@ spec:
             }
           ],
           "title": "Memory",
+          "transparent": true,
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "name": "Prometheus",
+            "type": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Mb",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "decbytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "id": 4,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "11.3.0",
+          "targets": [
+            {
+              "disableTextWrap": false,
+              "editorMode": "builder",
+              "expr": "rate(tempo_distributor_bytes_received_total[1m])",
+              "fullMetaSearch": false,
+              "includeNullMetadata": true,
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A",
+              "useBackend": false
+            }
+          ],
+          "title": "Bytes ingested",
           "transparent": true,
           "type": "timeseries"
         }

@@ -1,0 +1,7 @@
+# Python dependencies for chart generation
+# Install with: pip install -r requirements.txt
+
+matplotlib>=3.7.0
+plotly>=5.18.0
+pandas>=2.0.0
+

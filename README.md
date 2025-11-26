@@ -1,93 +1,304 @@
-# Tempo Performance Testing
-This project provides tools and configurations for performance testing of **Tempo**, leveraging OpenShift and Kubernetes resources. It includes utilities for managing deployments, running load generators, and monitoring the status of your Tempo setup.
+# Tempo Performance Testing Framework
+
+A comprehensive performance testing framework for **Tempo Monolithic** on OpenShift. This project provides automated tools for deploying Tempo, running load tests with varying TPS configurations, collecting metrics, and generating reports.
+
 ## Table of Contents
+
 - [Features](#features)
 - [Prerequisites](#prerequisites)
-- [Installation and Setup](#installation-and-setup)
-    - [Namespace Configuration](#namespace-configuration)
-    - [Deploying Tempo](#deploying-tempo)
-    - [Load Generator Setup](#load-generator-setup)
-
-- [Makefile Usage](#makefile-usage)
-- [Contributing](#contributing)
-- [License](#license)
+- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Running Performance Tests](#running-performance-tests)
+  - [Customizing Load Configurations](#customizing-load-configurations)
+  - [Generating Reports](#generating-reports)
+- [Makefile Targets](#makefile-targets)
+- [Configuration](#configuration)
+- [Reports](#reports)
 
 ## Features
-- Deploy **Tempo** in monolithic or stacked configurations.
-- Generate and push Docker images for query load generation.
-- Simplify resource management with `Makefile` targets for OpenShift/Kubernetes operations.
-- Monitor the status and logs of deployed resources.
-- Reset and refresh configuration for the load generator.
+
+- **Automated Performance Testing**: Run comprehensive tests with configurable TPS loads
+- **Idempotent Setup**: All setup scripts are safe to run multiple times
+- **Metrics Collection**: Automatically collects latencies, resource usage, throughput, and errors
+- **Report Generation**: Outputs both CSV (for spreadsheets) and JSON (for programmatic use)
+- **Chart Generation**: Creates static PNG charts and interactive HTML dashboards
+- **Flexible Configuration**: YAML-based load configurations with easy customization
+- **Monitoring Integration**: Automatic Grafana and Prometheus setup with dashboards
 
 ## Prerequisites
-This project requires the following:
-- **Docker**: For building and pushing the `query-load-generator` image.
-- **OpenShift CLI (oc)** or **Kubernetes CLI (kubectl)**: For interacting with the environment.
-- Access to **GitHub Container Registry** or another container registry where the `query-load-generator` image can be pushed.
-- A Kubernetes/OpenShift cluster.
 
-## Installation and Setup
-### Namespace Configuration
-All resources are managed under the defined namespace:
-``` bash
-NAMESPACE := tempo-perf-test
-```
-You can modify this in the `Makefile` if needed.
-### Deploying Tempo
-The project provides two deployment configurations:
-1. **Monolithic:**
-   Deploy Tempo as a single instance:
-``` bash
-   make apply-monolithic
-```
-1. **Stacked:**
-   Deploy Tempo with a distributed stack configuration:
-``` bash
-   make apply-stack
-```
-### Load Generator Setup
-To reset and apply the load generator configuration:
-``` bash
-make reset-gen
-```
-This automatically:
-- Deletes previous load generator resources.
-- Re-creates a `configmap` from `./query-load-generator/queries.txt`.
-- Applies the generator YAML file (`generator/` directory).
+- **OpenShift Cluster** with admin access
+- **Tempo Operator** installed (from OperatorHub)
+- **Grafana Operator** installed (from OperatorHub)
+- **CLI Tools**: `oc`, `jq`, `yq`, `bc`
+- **Docker** (for building custom images)
+- **Python 3.8+** (optional, for chart generation)
+  - Install chart dependencies: `make install-chart-deps`
 
-### Refresh Resources
-If you modify any tempo-related resources (e.g., YAML files in the `tempo/` directory), you can apply changes with:
-``` bash
-make refresh
+## Project Structure
+
 ```
-## Makefile Usage
-The following `Makefile` commands are available to manage your deployments:
+perf-test-tempo-monolithic/
+├── README.md
+├── Makefile                          # All make targets
+│
+├── deploy/                           # Deployment configurations
+│   ├── tempo-monolithic/
+│   │   ├── base/                     # Base Tempo configuration
+│   │   └── overlays/                 # Resource overlays (small/medium/large)
+│   ├── tempo-stack/
+│   └── storage/
+│       └── minio.yaml                # MinIO for S3 storage
+│
+├── scripts/                          # Setup scripts
+│   ├── deploy-tempo-monolithic.sh
+│   ├── deploy-tempo-stack.sh
+│   └── ensure-monitoring.sh          # Idempotent monitoring setup
+│
+├── generators/                       # Load generation tools
+│   ├── trace-generator/
+│   │   └── job.yaml
+│   └── query-generator/
+│       ├── Dockerfile
+│       ├── main.go
+│       └── manifests/
+│           └── deployment.yaml
+│
+├── monitoring/
+│   └── manifests/
+│       ├── grafana-instance.yaml
+│       └── tempo-dashboard.yaml
+│
+├── perf-tests/                       # Performance testing framework
+│   ├── config/
+│   │   └── loads.yaml                # Load configurations
+│   ├── templates/
+│   │   └── trace-generator.yaml.tmpl
+│   ├── scripts/
+│   │   ├── run-perf-tests.sh         # Main orchestrator
+│   │   ├── collect-metrics.sh        # Prometheus metrics collector
+│   │   └── generate-report.sh        # Report generator
+│   └── results/                      # Test results output
+│
+└── docs/
+```
+
+## Quick Start
+
+1. **Install Prerequisites**
+
+   Ensure Tempo Operator and Grafana Operator are installed from OperatorHub.
+
+2. **Run Performance Tests**
+
+   ```bash
+   # Run quick test (5 minutes, low load)
+   make perf-test-quick
+
+   # Run full test suite (all loads, 30 minutes each)
+   make perf-test
+   ```
+
+3. **View Results**
+
+   Results are saved in `perf-tests/results/`:
+   - `report-TIMESTAMP.csv` - For spreadsheet import
+   - `report-TIMESTAMP.json` - For programmatic processing
+   - `charts/*.png` - Static charts (if Python deps installed)
+   - `dashboard.html` - Interactive dashboard (if Python deps installed)
+
+## Usage
+
+### Running Performance Tests
+
+```bash
+# Full test suite (all loads defined in loads.yaml)
+make perf-test
+
+# Quick test (5 minutes, low load only)
+make perf-test-quick
+
+# Specific load only
+make perf-test-load LOAD=medium
+
+# Custom duration
+./perf-tests/scripts/run-perf-tests.sh -d 15m
+
+# Multiple specific loads
+./perf-tests/scripts/run-perf-tests.sh -l low -l medium -d 20m
+
+# Skip monitoring setup (if already configured)
+./perf-tests/scripts/run-perf-tests.sh -s -d 10m
+```
+
+### Customizing Load Configurations
+
+Edit `perf-tests/config/loads.yaml`:
+
+```yaml
+testDuration: "30m"
+
+loads:
+  - name: "low"
+    description: "Low load - baseline test"
+    tps: 50
+    parallelism: 1
+    depth: 10
+    nspans: 50
+
+  - name: "medium"
+    description: "Medium load - typical production"
+    tps: 150
+    parallelism: 3
+    depth: 10
+    nspans: 50
+
+  - name: "high"
+    description: "High load - stress test"
+    tps: 300
+    parallelism: 3
+    depth: 10
+    nspans: 50
+```
+
+### Generating Reports
+
+Reports are automatically generated after tests complete. To regenerate:
+
+```bash
+make generate-report
+```
+
+### Generating Charts
+
+Charts are automatically generated with reports if Python dependencies are installed. To generate charts separately:
+
+```bash
+# Install dependencies (one time)
+make install-chart-deps
+
+# Generate charts from existing results
+make generate-charts
+```
+
+This creates:
+- **Static PNG charts** in `perf-tests/results/charts/` - for inclusion in documents
+- **Interactive HTML dashboard** at `perf-tests/results/dashboard.html` - for browser viewing
+- **Summary table** at `perf-tests/results/summary.html` - quick overview of all results
+
+#### Available Charts
+
+| Chart | Description |
+|-------|-------------|
+| `latency_comparison.png` | P50, P90, P99 query latencies across load levels |
+| `resource_usage.png` | CPU and memory consumption per load |
+| `throughput_analysis.png` | Expected vs actual spans/sec with efficiency % |
+| `error_metrics.png` | Error rates and dropped spans per load |
+| `dashboard.html` | Interactive dashboard with all charts |
+
+## Makefile Targets
 
 | Target | Description |
-| --- | --- |
-| **clean** | Deletes the entire namespace and removes all associated resources. |
-| **apply-monolithic** | Deploys Tempo in monolithic configuration. |
-| **apply-stack** | Deploys Tempo in a stacked configuration. |
-| **refresh** | Applies all changes to resources in the `tempo` directory. |
-| **reset-gen** | Deletes and recreates the load generator configuration. |
-| **pods** | Retrieves all pods in the namespace. |
-| **status** | Retrieves the status of all resources in the namespace. |
-| **describe** | Describes all pods in the namespace and applies the current `queries.txt` configuration map. |
-| **build-push-gen** | Builds and pushes the `query-load-generator` Docker image to the container registry. |
-## Example Commands
-1. Monitor all pods in the namespace:
-``` bash
-   make pods
+|--------|-------------|
+| `make help` | Show all available targets |
+| `make perf-test` | Run full performance test suite |
+| `make perf-test-quick` | Run quick test (5min, low load) |
+| `make perf-test-load LOAD=x` | Run specific load test |
+| `make generate-report` | Generate reports from existing results |
+| `make generate-charts` | Generate charts from existing results |
+| `make install-chart-deps` | Install Python dependencies for charts |
+| `make ensure-monitoring` | Setup monitoring (idempotent) |
+| `make deploy-tempo` | Deploy Tempo Monolithic |
+| `make gen` | Start load generators |
+| `make stop-gen` | Stop load generators |
+| `make pods` | List pods in test namespace |
+| `make status` | Show all resource status |
+| `make clean` | Clean up test namespace |
+| `make build-push-gen` | Build and push query generator image |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONITORING_NAMESPACE` | `tempo-monitoring` | Namespace for Grafana/monitoring |
+| `PERF_TEST_NAMESPACE` | `tempo-perf-test` | Namespace for tests |
+| `TIMEOUT` | `300` | Timeout for readiness checks (seconds) |
+
+### Load Configuration Options
+
+| Field | Description |
+|-------|-------------|
+| `name` | Unique identifier for the load |
+| `description` | Human-readable description |
+| `tps` | Traces per second to generate |
+| `parallelism` | Number of parallel generator pods |
+| `depth` | Trace tree depth |
+| `nspans` | Spans per trace |
+
+## Reports
+
+### CSV Report Columns
+
+| Column | Description |
+|--------|-------------|
+| `load_name` | Name of the load configuration |
+| `tps` | Configured traces per second |
+| `duration_min` | Test duration in minutes |
+| `p50_latency_ms` | 50th percentile query latency |
+| `p90_latency_ms` | 90th percentile query latency |
+| `p99_latency_ms` | 99th percentile query latency |
+| `avg_cpu_cores` | Average CPU usage (cores) |
+| `max_memory_gb` | Maximum memory usage (GB) |
+| `spans_per_sec` | Actual spans ingested per second |
+| `error_rate_percent` | Query error rate |
+
+### JSON Report Structure
+
+```json
+{
+  "report_metadata": {
+    "generated_at": "2024-01-15T10:30:00Z",
+    "cluster": { "name": "...", "server": "..." }
+  },
+  "test_results": [
+    {
+      "load_name": "low",
+      "metrics": {
+        "query_latencies": { "p50_seconds": 0.1, "p90_seconds": 0.3, "p99_seconds": 0.5 },
+        "resources": { "avg_cpu_cores": 0.5, "max_memory_gb": 2.1 },
+        "throughput": { "spans_per_second": 2500 },
+        "errors": { "error_rate_percent": 0.01 }
+      }
+    }
+  ],
+  "summary": { "total_tests": 4, "avg_spans_per_second": 5000 }
+}
 ```
-1. Deploy a monolithic Tempo setup:
-``` bash
-   make apply-monolithic
+
+## Troubleshooting
+
+### Check Pod Status
+```bash
+make status
+make describe
 ```
-1. Build and push the `query-load-generator` image:
-``` bash
-   make build-push-gen
+
+### View Logs
+```bash
+make logs-tempo
+make logs-query
 ```
-1. Reset the load generator configuration:
-``` bash
-   make reset-gen
+
+### Clean Up and Restart
+```bash
+make clean
+make perf-test
 ```
+
+## References
+
+- [Honeycomb LoadGen](https://github.com/honeycombio/loadgen) - Trace generator tool
+- [Tempo Operator](https://github.com/grafana/tempo-operator) - Tempo Kubernetes Operator

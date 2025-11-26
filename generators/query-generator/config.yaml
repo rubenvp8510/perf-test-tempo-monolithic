@@ -1,0 +1,52 @@
+jaeger:
+  queryEndpoint: "http://tempo-simplest-jaegerui:16686"
+  timestampSeconds: false
+
+namespace: "tempo-perf-test"
+
+query:
+  delay: "5s"
+  concurrentQueries: 1
+
+timeBuckets:
+  - name: "ingester"
+    ageStart: "5m"
+    ageEnd: "15m"
+    weight: 40
+  - name: "backend-1h"
+    ageStart: "1h"
+    ageEnd: "2h"
+    weight: 60
+
+queries:
+  - name: "loadtest_limit20"
+    path: "/api/search?limit=20&maxDuration&minDuration&service=loadtest"
+  - name: "loadtest_limit30"
+    path: "/api/search?limit=30&maxDuration&minDuration&service=loadtest"
+  - name: "loadtest_limit50"
+    path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest"
+  - name: "loadtest_one_tag"
+    path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest&tags=http.url=\"http://spanFiller3/3\""
+  - name: "loadtest_slow_traces"
+    path: "/api/search?minDuration=500ms&limit=30&service=loadtest"
+  - name: "loadtest_very_slow"
+    path: "/api/search?minDuration=1s&limit=20&service=loadtest"
+  - name: "loadtest_fast_traces"
+    path: "/api/search?maxDuration=100ms&limit=40&service=loadtest"
+  - name: "loadtest_medium_duration"
+    path: "/api/search?minDuration=200ms&maxDuration=800ms&limit=25&service=loadtest"
+  - name: "loadtest_http_method"
+    path: "/api/search?limit=30&service=loadtest&tags=http.method=POST"
+  - name: "loadtest_multi_tag"
+    path: "/api/search?limit=20&service=loadtest&tags=http.method=GET"
+  - name: "loadtest_large_limit"
+    path: "/api/search?limit=100&service=loadtest"
+  - name: "loadtest_small_limit"
+    path: "/api/search?limit=10&service=loadtest"
+  - name: "loadtest_span_name"
+    path: "/api/search?limit=25&service=loadtest"
+  - name: "loadtest_duration_range"
+    path: "/api/search?minDuration=300ms&maxDuration=700ms&limit=35&service=loadtest"
+  - name: "loadtest_limit15"
+    path: "/api/search?limit=15&service=loadtest"
+

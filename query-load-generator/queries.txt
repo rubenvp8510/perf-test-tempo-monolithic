@@ -1,3 +1,0 @@
-loadtest_limit20|/api/search?limit=20&maxDuration&minDuration&service=loadtest
-loadtest_limit30|/api/search?limit=30&maxDuration&minDuration&service=loadtest
-loadtest_limit50_one_tag|/api/search?limit=50&lookback=1h&maxDuration&minDuration&service=loadtest&tags=http.url="http://spanFiller3/3"

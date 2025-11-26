@@ -3,13 +3,6 @@ kind: TempoMonolithic
 metadata:
   name: simplest
 spec:
-  resources:
-    limits:
-      memory: 8Gi
-      cpu: 1000m
-    requests:
-      memory: 8Gi
-      cpu: 1000m
   storage:
     traces:
       backend: s3

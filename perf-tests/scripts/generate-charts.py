@@ -1,0 +1,586 @@
+#!/usr/bin/env python3
+"""
+generate-charts.py - Generate performance test charts
+
+Usage: ./generate-charts.py <results_dir>
+
+Generates:
+- Static PNG charts using matplotlib (for reports/documentation)
+- Interactive HTML dashboard using plotly (for browser viewing)
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+# Color palette - vibrant, distinct colors
+COLORS = {
+    'primary': '#00D9FF',      # Cyan
+    'secondary': '#FF6B6B',    # Coral
+    'tertiary': '#4ECDC4',     # Teal
+    'quaternary': '#FFE66D',   # Yellow
+    'accent': '#C44DFF',       # Purple
+    'success': '#7AE582',      # Green
+    'warning': '#FFA07A',      # Light salmon
+    'background': '#1a1a2e',   # Dark blue
+    'surface': '#16213e',      # Slightly lighter blue
+    'text': '#eaeaea',         # Light gray
+}
+
+# Matplotlib dark theme configuration
+plt.rcParams.update({
+    'figure.facecolor': COLORS['background'],
+    'axes.facecolor': COLORS['surface'],
+    'axes.edgecolor': COLORS['text'],
+    'axes.labelcolor': COLORS['text'],
+    'text.color': COLORS['text'],
+    'xtick.color': COLORS['text'],
+    'ytick.color': COLORS['text'],
+    'grid.color': '#333355',
+    'grid.alpha': 0.5,
+    'legend.facecolor': COLORS['surface'],
+    'legend.edgecolor': COLORS['text'],
+    'font.family': 'sans-serif',
+    'font.size': 11,
+})
+
+
+def load_test_results(results_dir: Path) -> list[dict[str, Any]]:
+    """Load all test results from raw JSON files."""
+    raw_dir = results_dir / 'raw'
+    if not raw_dir.exists():
+        print(f"Error: Raw results directory not found: {raw_dir}")
+        sys.exit(1)
+
+    results = []
+    for json_file in sorted(raw_dir.glob('*.json')):
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+                results.append(data)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Could not parse {json_file}: {e}")
+            continue
+
+    if not results:
+        print(f"Error: No valid JSON files found in {raw_dir}")
+        sys.exit(1)
+
+    return results
+
+
+def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
+    """Convert test results to a pandas DataFrame."""
+    rows = []
+    for r in results:
+        row = {
+            'load_name': r.get('load_name', 'unknown'),
+            'tps': r.get('config', {}).get('tps', 0),
+            'p50_ms': r.get('metrics', {}).get('query_latencies', {}).get('p50_seconds', 0) * 1000,
+            'p90_ms': r.get('metrics', {}).get('query_latencies', {}).get('p90_seconds', 0) * 1000,
+            'p99_ms': r.get('metrics', {}).get('query_latencies', {}).get('p99_seconds', 0) * 1000,
+            'cpu_cores': r.get('metrics', {}).get('resources', {}).get('avg_cpu_cores', 0),
+            'memory_gb': r.get('metrics', {}).get('resources', {}).get('max_memory_gb', 0),
+            'spans_per_sec': r.get('metrics', {}).get('throughput', {}).get('spans_per_second', 0),
+            'error_rate': r.get('metrics', {}).get('errors', {}).get('error_rate_percent', 0),
+            'dropped_spans': r.get('metrics', {}).get('errors', {}).get('dropped_spans_per_second', 0),
+        }
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    # Sort by TPS for consistent ordering
+    df = df.sort_values('tps').reset_index(drop=True)
+    return df
+
+
+# =============================================================================
+# Static Chart Generation (matplotlib)
+# =============================================================================
+
+def create_latency_chart(df: pd.DataFrame, output_dir: Path) -> None:
+    """Create latency comparison bar chart."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.25
+
+    bars1 = ax.bar([i - width for i in x], df['p50_ms'], width,
+                   label='P50', color=COLORS['primary'], edgecolor='white', linewidth=0.5)
+    bars2 = ax.bar(x, df['p90_ms'], width,
+                   label='P90', color=COLORS['secondary'], edgecolor='white', linewidth=0.5)
+    bars3 = ax.bar([i + width for i in x], df['p99_ms'], width,
+                   label='P99', color=COLORS['tertiary'], edgecolor='white', linewidth=0.5)
+
+    ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Latency (ms)', fontsize=12, fontweight='bold')
+    ax.set_title('Query Latency by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax.legend(loc='upper left', framealpha=0.9)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Add value labels on bars
+    for bars in [bars1, bars2, bars3]:
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.annotate(f'{height:.1f}',
+                            xy=(bar.get_x() + bar.get_width() / 2, height),
+                            xytext=(0, 3), textcoords="offset points",
+                            ha='center', va='bottom', fontsize=8, color=COLORS['text'])
+
+    plt.tight_layout()
+    output_path = output_dir / 'latency_comparison.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_resources_chart(df: pd.DataFrame, output_dir: Path) -> None:
+    """Create resource usage dual-axis chart."""
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.35
+
+    # CPU bars on primary axis
+    bars1 = ax1.bar([i - width/2 for i in x], df['cpu_cores'], width,
+                    label='CPU (cores)', color=COLORS['primary'], edgecolor='white', linewidth=0.5)
+    ax1.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('CPU (cores)', fontsize=12, fontweight='bold', color=COLORS['primary'])
+    ax1.tick_params(axis='y', labelcolor=COLORS['primary'])
+
+    # Memory bars on secondary axis
+    ax2 = ax1.twinx()
+    bars2 = ax2.bar([i + width/2 for i in x], df['memory_gb'], width,
+                    label='Memory (GB)', color=COLORS['secondary'], edgecolor='white', linewidth=0.5)
+    ax2.set_ylabel('Memory (GB)', fontsize=12, fontweight='bold', color=COLORS['secondary'])
+    ax2.tick_params(axis='y', labelcolor=COLORS['secondary'])
+
+    ax1.set_title('Resource Usage by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', framealpha=0.9)
+
+    ax1.grid(axis='y', linestyle='--', alpha=0.5)
+
+    plt.tight_layout()
+    output_path = output_dir / 'resource_usage.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_throughput_chart(df: pd.DataFrame, output_dir: Path) -> None:
+    """Create throughput analysis chart with efficiency calculation."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.35
+
+    # Expected spans (TPS * nspans, assuming 50 spans per trace as default)
+    nspans_per_trace = 50
+    df['expected_spans'] = df['tps'] * nspans_per_trace
+
+    bars1 = ax.bar([i - width/2 for i in x], df['expected_spans'], width,
+                   label='Expected Spans/sec', color=COLORS['quaternary'],
+                   edgecolor='white', linewidth=0.5, alpha=0.7)
+    bars2 = ax.bar([i + width/2 for i in x], df['spans_per_sec'], width,
+                   label='Actual Spans/sec', color=COLORS['success'],
+                   edgecolor='white', linewidth=0.5)
+
+    ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Spans per Second', fontsize=12, fontweight='bold')
+    ax.set_title('Throughput: Expected vs Actual', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax.legend(loc='upper left', framealpha=0.9)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Add efficiency percentage
+    for i, (_, row) in enumerate(df.iterrows()):
+        if row['expected_spans'] > 0:
+            efficiency = (row['spans_per_sec'] / row['expected_spans']) * 100
+            ax.annotate(f'{efficiency:.0f}%',
+                        xy=(i, max(row['expected_spans'], row['spans_per_sec'])),
+                        xytext=(0, 10), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=10,
+                        color=COLORS['success'] if efficiency >= 90 else COLORS['warning'],
+                        fontweight='bold')
+
+    plt.tight_layout()
+    output_path = output_dir / 'throughput_analysis.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_error_chart(df: pd.DataFrame, output_dir: Path) -> None:
+    """Create error rates chart."""
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.35
+
+    # Error rate bars
+    bars1 = ax1.bar([i - width/2 for i in x], df['error_rate'], width,
+                    label='Error Rate (%)', color=COLORS['secondary'],
+                    edgecolor='white', linewidth=0.5)
+    ax1.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Error Rate (%)', fontsize=12, fontweight='bold', color=COLORS['secondary'])
+    ax1.tick_params(axis='y', labelcolor=COLORS['secondary'])
+
+    # Dropped spans on secondary axis
+    ax2 = ax1.twinx()
+    bars2 = ax2.bar([i + width/2 for i in x], df['dropped_spans'], width,
+                    label='Dropped Spans/sec', color=COLORS['accent'],
+                    edgecolor='white', linewidth=0.5)
+    ax2.set_ylabel('Dropped Spans/sec', fontsize=12, fontweight='bold', color=COLORS['accent'])
+    ax2.tick_params(axis='y', labelcolor=COLORS['accent'])
+
+    ax1.set_title('Error Metrics by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+
+    # Combined legend
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left', framealpha=0.9)
+
+    ax1.grid(axis='y', linestyle='--', alpha=0.5)
+
+    plt.tight_layout()
+    output_path = output_dir / 'error_metrics.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def generate_static_charts(df: pd.DataFrame, output_dir: Path) -> None:
+    """Generate all static PNG charts."""
+    print("\n📊 Generating static charts (PNG)...")
+    charts_dir = output_dir / 'charts'
+    charts_dir.mkdir(parents=True, exist_ok=True)
+
+    create_latency_chart(df, charts_dir)
+    create_resources_chart(df, charts_dir)
+    create_throughput_chart(df, charts_dir)
+    create_error_chart(df, charts_dir)
+
+
+# =============================================================================
+# Interactive Dashboard Generation (plotly)
+# =============================================================================
+
+def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path) -> None:
+    """Generate interactive HTML dashboard with plotly."""
+    print("\n🌐 Generating interactive dashboard (HTML)...")
+
+    # Create subplot figure
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=(
+            'Query Latency by Load Level',
+            'Resource Usage by Load Level',
+            'Throughput: Expected vs Actual',
+            'Error Metrics by Load Level'
+        ),
+        vertical_spacing=0.12,
+        horizontal_spacing=0.1
+    )
+
+    load_labels = [f"{row['load_name']}<br>({row['tps']} TPS)" for _, row in df.iterrows()]
+
+    # 1. Latency Chart (top-left)
+    fig.add_trace(go.Bar(
+        name='P50', x=load_labels, y=df['p50_ms'],
+        marker_color=COLORS['primary'], text=df['p50_ms'].round(1),
+        textposition='outside', textfont=dict(size=10)
+    ), row=1, col=1)
+    fig.add_trace(go.Bar(
+        name='P90', x=load_labels, y=df['p90_ms'],
+        marker_color=COLORS['secondary'], text=df['p90_ms'].round(1),
+        textposition='outside', textfont=dict(size=10)
+    ), row=1, col=1)
+    fig.add_trace(go.Bar(
+        name='P99', x=load_labels, y=df['p99_ms'],
+        marker_color=COLORS['tertiary'], text=df['p99_ms'].round(1),
+        textposition='outside', textfont=dict(size=10)
+    ), row=1, col=1)
+
+    # 2. Resources Chart (top-right)
+    fig.add_trace(go.Bar(
+        name='CPU (cores)', x=load_labels, y=df['cpu_cores'],
+        marker_color=COLORS['primary'], text=df['cpu_cores'].round(2),
+        textposition='outside', textfont=dict(size=10)
+    ), row=1, col=2)
+    fig.add_trace(go.Bar(
+        name='Memory (GB)', x=load_labels, y=df['memory_gb'],
+        marker_color=COLORS['secondary'], text=df['memory_gb'].round(2),
+        textposition='outside', textfont=dict(size=10)
+    ), row=1, col=2)
+
+    # 3. Throughput Chart (bottom-left)
+    nspans_per_trace = 50
+    expected_spans = df['tps'] * nspans_per_trace
+    fig.add_trace(go.Bar(
+        name='Expected Spans/sec', x=load_labels, y=expected_spans,
+        marker_color=COLORS['quaternary'], opacity=0.7
+    ), row=2, col=1)
+    fig.add_trace(go.Bar(
+        name='Actual Spans/sec', x=load_labels, y=df['spans_per_sec'],
+        marker_color=COLORS['success'],
+        text=[f"{(actual/expected*100):.0f}%" if expected > 0 else "N/A"
+              for actual, expected in zip(df['spans_per_sec'], expected_spans)],
+        textposition='outside', textfont=dict(size=10)
+    ), row=2, col=1)
+
+    # 4. Errors Chart (bottom-right)
+    fig.add_trace(go.Bar(
+        name='Error Rate (%)', x=load_labels, y=df['error_rate'],
+        marker_color=COLORS['secondary'], text=df['error_rate'].round(2),
+        textposition='outside', textfont=dict(size=10)
+    ), row=2, col=2)
+    fig.add_trace(go.Bar(
+        name='Dropped Spans/sec', x=load_labels, y=df['dropped_spans'],
+        marker_color=COLORS['accent'], text=df['dropped_spans'].round(1),
+        textposition='outside', textfont=dict(size=10)
+    ), row=2, col=2)
+
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text='<b>Tempo Performance Test Dashboard</b>',
+            font=dict(size=24, color=COLORS['text']),
+            x=0.5, xanchor='center'
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=-0.15,
+            xanchor='center',
+            x=0.5,
+            bgcolor=COLORS['surface'],
+            bordercolor=COLORS['text'],
+            borderwidth=1,
+            font=dict(color=COLORS['text'])
+        ),
+        paper_bgcolor=COLORS['background'],
+        plot_bgcolor=COLORS['surface'],
+        font=dict(color=COLORS['text']),
+        height=900,
+        barmode='group',
+        bargap=0.15,
+        bargroupgap=0.1
+    )
+
+    # Update axes
+    fig.update_xaxes(
+        showgrid=True, gridwidth=1, gridcolor='#333355',
+        tickfont=dict(color=COLORS['text'])
+    )
+    fig.update_yaxes(
+        showgrid=True, gridwidth=1, gridcolor='#333355',
+        tickfont=dict(color=COLORS['text'])
+    )
+
+    # Add axis labels
+    fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
+    fig.update_yaxes(title_text="Value", row=1, col=2)
+    fig.update_yaxes(title_text="Spans/sec", row=2, col=1)
+    fig.update_yaxes(title_text="Value", row=2, col=2)
+
+    # Save dashboard
+    output_path = output_dir / 'dashboard.html'
+    fig.write_html(
+        str(output_path),
+        include_plotlyjs=True,
+        full_html=True,
+        config={
+            'displayModeBar': True,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': ['lasso2d', 'select2d']
+        }
+    )
+    print(f"  ✅ Created: {output_path}")
+
+
+# =============================================================================
+# Summary Table Generation
+# =============================================================================
+
+def generate_summary_table(df: pd.DataFrame, output_dir: Path) -> None:
+    """Generate an HTML summary table of results."""
+    print("\n📋 Generating summary table...")
+
+    nspans_per_trace = 50
+    df['expected_spans'] = df['tps'] * nspans_per_trace
+    df['efficiency'] = (df['spans_per_sec'] / df['expected_spans'] * 100).round(1)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Test Summary</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: {COLORS['background']};
+            color: {COLORS['text']};
+            padding: 20px;
+            margin: 0;
+        }}
+        h1 {{
+            text-align: center;
+            color: {COLORS['primary']};
+            margin-bottom: 30px;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background-color: {COLORS['surface']};
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }}
+        th {{
+            background-color: {COLORS['primary']};
+            color: {COLORS['background']};
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+        }}
+        td {{
+            padding: 12px 10px;
+            border-bottom: 1px solid #333355;
+        }}
+        tr:hover {{
+            background-color: rgba(0, 217, 255, 0.1);
+        }}
+        .metric-good {{ color: {COLORS['success']}; }}
+        .metric-warn {{ color: {COLORS['warning']}; }}
+        .metric-bad {{ color: {COLORS['secondary']}; }}
+        .footer {{
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+            font-size: 0.9em;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Tempo Performance Test Summary</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Load</th>
+                    <th>TPS</th>
+                    <th>P50 (ms)</th>
+                    <th>P90 (ms)</th>
+                    <th>P99 (ms)</th>
+                    <th>CPU (cores)</th>
+                    <th>Memory (GB)</th>
+                    <th>Spans/sec</th>
+                    <th>Efficiency</th>
+                    <th>Error Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+
+    for _, row in df.iterrows():
+        eff_class = 'metric-good' if row['efficiency'] >= 90 else ('metric-warn' if row['efficiency'] >= 70 else 'metric-bad')
+        err_class = 'metric-good' if row['error_rate'] < 1 else ('metric-warn' if row['error_rate'] < 5 else 'metric-bad')
+
+        html_content += f"""                <tr>
+                    <td><strong>{row['load_name']}</strong></td>
+                    <td>{row['tps']}</td>
+                    <td>{row['p50_ms']:.1f}</td>
+                    <td>{row['p90_ms']:.1f}</td>
+                    <td>{row['p99_ms']:.1f}</td>
+                    <td>{row['cpu_cores']:.2f}</td>
+                    <td>{row['memory_gb']:.2f}</td>
+                    <td>{row['spans_per_sec']:.0f}</td>
+                    <td class="{eff_class}">{row['efficiency']:.1f}%</td>
+                    <td class="{err_class}">{row['error_rate']:.2f}%</td>
+                </tr>
+"""
+
+    html_content += """            </tbody>
+        </table>
+        <p class="footer">Generated by Tempo Performance Test Framework</p>
+    </div>
+</body>
+</html>
+"""
+
+    output_path = output_dir / 'summary.html'
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    print(f"  ✅ Created: {output_path}")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: ./generate-charts.py <results_dir>")
+        print("")
+        print("Example: ./generate-charts.py perf-tests/results")
+        sys.exit(1)
+
+    results_dir = Path(sys.argv[1])
+
+    if not results_dir.exists():
+        print(f"Error: Results directory not found: {results_dir}")
+        sys.exit(1)
+
+    print("=" * 60)
+    print("  Tempo Performance Test - Chart Generation")
+    print("=" * 60)
+    print(f"\nResults directory: {results_dir}")
+
+    # Load and process results
+    results = load_test_results(results_dir)
+    print(f"Loaded {len(results)} test result(s)")
+
+    df = results_to_dataframe(results)
+    print(f"Processed data for loads: {', '.join(df['load_name'].tolist())}")
+
+    # Generate outputs
+    generate_static_charts(df, results_dir)
+    generate_interactive_dashboard(df, results_dir)
+    generate_summary_table(df, results_dir)
+
+    print("\n" + "=" * 60)
+    print("  Chart generation complete!")
+    print("=" * 60)
+    print(f"\nOutputs:")
+    print(f"  📊 Static charts: {results_dir}/charts/")
+    print(f"  🌐 Dashboard:     {results_dir}/dashboard.html")
+    print(f"  📋 Summary:       {results_dir}/summary.html")
+
+
+if __name__ == '__main__':
+    main()
+

@@ -11,4 +11,4 @@ image-push:
 	docker push ${IMG}:${VERSION}
 
 run:
-	NAMESPACE=opensearch QUERY_FILE=queries.txt QUERY_LOOKBACK=2h JAEGER_QUERY_ENDPOINT=http://localhost:16686 QUERY_DELAY=10s go run main.go
+	CONFIG_FILE=config.yaml go run main.go

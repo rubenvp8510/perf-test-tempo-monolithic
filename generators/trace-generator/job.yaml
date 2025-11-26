@@ -4,8 +4,8 @@ metadata:
   name: generate-traces
   namespace: tempo-perf-test
 spec:
-  completions: 50
-  parallelism: 50
+  completions: 3
+  parallelism: 3
   template:
     spec:
       nodeSelector:
@@ -15,16 +15,16 @@ spec:
           image: ghcr.io/honeycombio/loadgen/loadgen:latest
           args:
             - --dataset=loadtest
-            - --tps=20000
-            - --depth=3
-            - --nspans=70
-            - --runtime=15m
+            - --tps=150
+            - --depth=10
+            - --nspans=50
+            - --runtime=30m
             - --ramptime=1s
             - --tracecount=0
             - --protocol=grpc
             - --sender=otel
             - --host=tempo-simplest:4317
-            - --loglevel=debug
             - --insecure
       restartPolicy: Never
   backoffLimit: 4
+

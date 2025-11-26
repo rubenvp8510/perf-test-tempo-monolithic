@@ -1,7 +1,10 @@
 #!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 NAMESPACE=tempo-perf-test
-
 
 if ! oc get namespace "$NAMESPACE" > /dev/null 2>&1; then
   echo "Creating namespace $NAMESPACE..."
@@ -10,9 +13,9 @@ else
   echo "Namespace $NAMESPACE already exists. Continuing..."
 fi
 
-oc apply -f tempo/storate.yaml -n ${NAMESPACE}
+oc apply -f "$PROJECT_ROOT/deploy/storage/minio.yaml" -n ${NAMESPACE}
 
-oc apply -k tempo-stack/stack.yaml -n ${NAMESPACE}
+oc apply -f "$PROJECT_ROOT/deploy/tempo-monolithic/base/tempo.yaml" -n ${NAMESPACE}
 
 sleep 10
 
