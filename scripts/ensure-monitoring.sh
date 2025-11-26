@@ -225,7 +225,7 @@ wait_for_monitoring() {
     log_wait "Waiting for user-workload Prometheus pods..."
     local waited=0
     while true; do
-        ready_pods=$(oc get pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+        ready_pods=$(oc get pods -n openshift-user-workload-monitoring -l app.kubernetes.io/name=prometheus --no-headers 2>/dev/null | grep -c "Running") || ready_pods=0
         if [ "$ready_pods" -ge 1 ]; then
             log_info "User-workload Prometheus is ready ($ready_pods pods running)."
             break

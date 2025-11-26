@@ -38,22 +38,23 @@ generate_csv() {
     echo "load_name,tps,duration_min,p50_latency_ms,p90_latency_ms,p99_latency_ms,avg_cpu_cores,max_memory_gb,spans_per_sec,bytes_per_sec,query_failures_per_sec,error_rate_percent,dropped_spans_per_sec,timestamp" > "$output_file"
     
     # Process each raw JSON file
-    for json_file in "$results_dir"/raw/*.json; do
-        if [ ! -f "$json_file" ]; then
+    local raw_file
+    for raw_file in "$results_dir"/raw/*.json; do
+        if [ ! -f "$raw_file" ]; then
             continue
         fi
         
         # Extract values from JSON
         local load_name tps duration p50 p90 p99 cpu mem spans bytes failures error_rate dropped timestamp
         
-        load_name=$(jq -r '.load_name // "unknown"' "$json_file")
-        tps=$(jq -r '.config.tps // 0' "$json_file")
-        duration=$(jq -r '.config.duration_minutes // 30' "$json_file")
+        load_name=$(jq -r '.load_name // "unknown"' "$raw_file")
+        tps=$(jq -r '.config.tps // 0' "$raw_file")
+        duration=$(jq -r '.config.duration_minutes // 30' "$raw_file")
         
         # Latencies (convert seconds to ms)
-        p50=$(jq -r '.metrics.query_latencies.p50_seconds // 0' "$json_file")
-        p90=$(jq -r '.metrics.query_latencies.p90_seconds // 0' "$json_file")
-        p99=$(jq -r '.metrics.query_latencies.p99_seconds // 0' "$json_file")
+        p50=$(jq -r '.metrics.query_latencies.p50_seconds // 0' "$raw_file")
+        p90=$(jq -r '.metrics.query_latencies.p90_seconds // 0' "$raw_file")
+        p99=$(jq -r '.metrics.query_latencies.p99_seconds // 0' "$raw_file")
         
         # Convert to milliseconds
         p50_ms=$(echo "scale=2; $p50 * 1000" | bc 2>/dev/null || echo "0")
@@ -61,19 +62,19 @@ generate_csv() {
         p99_ms=$(echo "scale=2; $p99 * 1000" | bc 2>/dev/null || echo "0")
         
         # Resources
-        cpu=$(jq -r '.metrics.resources.avg_cpu_cores // 0' "$json_file")
-        mem=$(jq -r '.metrics.resources.max_memory_gb // 0' "$json_file")
+        cpu=$(jq -r '.metrics.resources.avg_cpu_cores // 0' "$raw_file")
+        mem=$(jq -r '.metrics.resources.max_memory_gb // 0' "$raw_file")
         
         # Throughput
-        spans=$(jq -r '.metrics.throughput.spans_per_second // 0' "$json_file")
-        bytes=$(jq -r '.metrics.throughput.bytes_per_second // 0' "$json_file")
+        spans=$(jq -r '.metrics.throughput.spans_per_second // 0' "$raw_file")
+        bytes=$(jq -r '.metrics.throughput.bytes_per_second // 0' "$raw_file")
         
         # Errors
-        failures=$(jq -r '.metrics.errors.query_failures_per_second // 0' "$json_file")
-        error_rate=$(jq -r '.metrics.errors.error_rate_percent // 0' "$json_file")
-        dropped=$(jq -r '.metrics.errors.dropped_spans_per_second // 0' "$json_file")
+        failures=$(jq -r '.metrics.errors.query_failures_per_second // 0' "$raw_file")
+        error_rate=$(jq -r '.metrics.errors.error_rate_percent // 0' "$raw_file")
+        dropped=$(jq -r '.metrics.errors.dropped_spans_per_second // 0' "$raw_file")
         
-        timestamp=$(jq -r '.timestamp // ""' "$json_file")
+        timestamp=$(jq -r '.timestamp // ""' "$raw_file")
         
         # Write CSV row
         echo "${load_name},${tps},${duration},${p50_ms},${p90_ms},${p99_ms},${cpu},${mem},${spans},${bytes},${failures},${error_rate},${dropped},${timestamp}" >> "$output_file"
@@ -115,8 +116,9 @@ EOF
     
     # Process each raw JSON file
     local first=true
-    for json_file in "$results_dir"/raw/*.json; do
-        if [ ! -f "$json_file" ]; then
+    local raw_file
+    for raw_file in "$results_dir"/raw/*.json; do
+        if [ ! -f "$raw_file" ]; then
             continue
         fi
         
@@ -127,7 +129,7 @@ EOF
         fi
         
         # Read and append the raw JSON content (indented)
-        jq '.' "$json_file" | sed 's/^/    /' >> "$output_file"
+        jq '.' "$raw_file" | sed 's/^/    /' >> "$output_file"
     done
     
     # Close JSON structure
@@ -158,16 +160,17 @@ generate_summary() {
     local max_p99=0
     local min_p99=999999
     
-    for json_file in "$results_dir"/raw/*.json; do
-        if [ ! -f "$json_file" ]; then
+    local raw_file
+    for raw_file in "$results_dir"/raw/*.json; do
+        if [ ! -f "$raw_file" ]; then
             continue
         fi
         
         total_tests=$((total_tests + 1))
         
         local spans p99
-        spans=$(jq -r '.metrics.throughput.spans_per_second // 0' "$json_file")
-        p99=$(jq -r '.metrics.query_latencies.p99_seconds // 0' "$json_file")
+        spans=$(jq -r '.metrics.throughput.spans_per_second // 0' "$raw_file")
+        p99=$(jq -r '.metrics.query_latencies.p99_seconds // 0' "$raw_file")
         
         # Use awk for floating point comparison
         total_spans=$(echo "$total_spans + $spans" | bc 2>/dev/null || echo "$total_spans")
