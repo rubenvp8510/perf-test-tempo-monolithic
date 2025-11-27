@@ -176,15 +176,34 @@ ensure_monitoring() {
 reset_tempo_state() {
     log_section "Resetting Tempo State (Fresh)"
     
+    log_info "Deleting all trace generator jobs..."
+    oc delete jobs -l app=trace-generator -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
+    
+    log_info "Deleting query generator deployment..."
+    oc delete deployment query-load-generator -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
+    
     log_info "Deleting TempoMonolithic..."
-    oc delete tempomonolithic simplest -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
+    oc delete tempomonolithic simplest -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
-    log_info "Deleting MinIO deployment and storage..."
-    oc delete deployment minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
-    oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
+    log_info "Deleting MinIO deployment..."
+    oc delete deployment minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
-    log_wait "Waiting for resources to be deleted..."
-    sleep 10
+    log_info "Deleting MinIO service..."
+    oc delete service minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
+    
+    log_info "Deleting MinIO secret..."
+    oc delete secret minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
+    
+    log_info "Deleting MinIO PVC..."
+    oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
+    
+    log_wait "Waiting for all resources to be fully deleted..."
+    
+    # Wait for all jobs pods to be fully deleted
+    while oc get pods -l app=trace-generator -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
+        log_wait "Waiting for trace generator pods to be deleted..."
+        sleep 5
+    done
     
     # Wait for PVC to be fully deleted
     while oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null; do
@@ -192,7 +211,19 @@ reset_tempo_state() {
         sleep 5
     done
     
-    log_info "Tempo state reset complete."
+    # Wait for TempoMonolithic pods to be fully deleted
+    while oc get pods -l app.kubernetes.io/name=tempo -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
+        log_wait "Waiting for Tempo pods to be deleted..."
+        sleep 5
+    done
+    
+    # Wait for MinIO pods to be fully deleted (correct label)
+    while oc get pods -l app.kubernetes.io/name=minio -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
+        log_wait "Waiting for MinIO pods to be deleted..."
+        sleep 5
+    done
+    
+    log_info "Tempo state reset complete. All resources deleted."
 }
 
 #
@@ -266,10 +297,11 @@ calculate_weighted_avg_spans() {
 
 #
 # Convert MB/s to TPS using estimation config
-# TPS = (mb_per_sec * 1024 * 1024) / (weighted_avg_spans * bytes_per_span)
+# TPS = (mb_per_sec * 1024 * 1024) / (weighted_avg_spans * bytes_per_span) * tps_multiplier
 #
 convert_mb_to_tps() {
     local mb_per_sec="$1"
+    local tps_multiplier="${2:-1}"  # Default multiplier is 1
     
     local bytes_per_span weighted_avg_spans bytes_per_sec tps
     
@@ -282,8 +314,8 @@ convert_mb_to_tps() {
     # Convert MB/s to bytes/s
     bytes_per_sec=$(echo "scale=0; $mb_per_sec * 1024 * 1024" | bc)
     
-    # Calculate TPS: bytes_per_sec / (weighted_avg_spans * bytes_per_span)
-    tps=$(echo "scale=0; $bytes_per_sec / ($weighted_avg_spans * $bytes_per_span)" | bc)
+    # Calculate TPS: bytes_per_sec / (weighted_avg_spans * bytes_per_span) * multiplier
+    tps=$(echo "scale=0; ($bytes_per_sec / ($weighted_avg_spans * $bytes_per_span)) * $tps_multiplier" | bc)
     
     # Ensure at least 1 TPS
     if [ "$tps" -lt 1 ]; then
@@ -358,9 +390,12 @@ generate_trace_job() {
     local load_name="$1"
     local runtime="$2"
     
-    local mb_per_sec tps parallelism tempo_host tempo_port namespace
+    local mb_per_sec tps_multiplier tps parallelism tempo_host tempo_port namespace
     mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
-    tps=$(convert_mb_to_tps "$mb_per_sec")
+    tps_multiplier=$(read_load_config "$load_name" "tps_multiplier")
+    # Default to 1 if not set
+    tps_multiplier=${tps_multiplier:-1}
+    tps=$(convert_mb_to_tps "$mb_per_sec" "$tps_multiplier")
     parallelism=$(read_load_config "$load_name" "parallelism")
     tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
     tempo_port=$(yq eval '.tempo.grpcPort' "$CONFIG_FILE")
@@ -397,12 +432,15 @@ deploy_generators() {
     local load_name="$1"
     local runtime="$2"
     
-    local mb_per_sec total_tps
+    local mb_per_sec tps_multiplier total_tps parallelism
     mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
-    total_tps=$(convert_mb_to_tps "$mb_per_sec")
+    tps_multiplier=$(read_load_config "$load_name" "tps_multiplier")
+    tps_multiplier=${tps_multiplier:-1}
+    parallelism=$(read_load_config "$load_name" "parallelism")
+    total_tps=$(convert_mb_to_tps "$mb_per_sec" "$tps_multiplier")
     
     log_info "Deploying generators for load: $load_name"
-    log_info "Target rate: ${mb_per_sec} MB/s (converted to ${total_tps} TPS)"
+    log_info "Target rate: ${mb_per_sec} MB/s (${total_tps} TPS × ${parallelism} replicas, multiplier: ${tps_multiplier}x)"
     
     # Show service distribution
     local service_count
@@ -419,6 +457,10 @@ deploy_generators() {
         [ "$service_tps" -lt 1 ] && service_tps=1
         log_info "  - $service_name: ${service_tps} TPS, depth=$depth, spans=$nspans (${weight}%)"
     done
+    
+    # Delete existing trace generator job first (Jobs are immutable)
+    log_info "Cleaning up any existing trace generator job..."
+    oc delete job "generate-traces-${load_name}" -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
     # Deploy trace generator
     log_info "Deploying multi-service trace generator..."
@@ -520,14 +562,17 @@ run_load_test() {
     
     log_section "Load Test [$test_number/$total_tests]: $load_name"
     
-    local description service_count mb_per_sec calculated_tps
+    local description service_count mb_per_sec tps_multiplier calculated_tps parallelism
     description=$(read_load_config "$load_name" "description")
     service_count=$(get_service_count)
     mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
-    calculated_tps=$(convert_mb_to_tps "$mb_per_sec")
+    tps_multiplier=$(read_load_config "$load_name" "tps_multiplier")
+    tps_multiplier=${tps_multiplier:-1}
+    parallelism=$(read_load_config "$load_name" "parallelism")
+    calculated_tps=$(convert_mb_to_tps "$mb_per_sec" "$tps_multiplier")
     log_info "Description: $description"
-    log_info "Target rate: ${mb_per_sec} MB/s (${calculated_tps} TPS across $service_count services)"
-    log_info "Parallelism: $(read_load_config "$load_name" "parallelism") pods"
+    log_info "Target rate: ${mb_per_sec} MB/s (${calculated_tps} TPS × ${parallelism} replicas across $service_count services)"
+    log_info "TPS multiplier: ${tps_multiplier}x (empirical adjustment)"
     log_info "Duration: $duration"
     
     # Reset Tempo state if --fresh flag is set
@@ -587,7 +632,12 @@ main() {
     # Setup
     check_prerequisites
     ensure_monitoring
-    deploy_tempo
+    
+    # Only deploy Tempo initially if NOT using fresh state
+    # When fresh state is enabled, deploy happens at the start of each test after cleanup
+    if [ "$FRESH_STATE" = false ]; then
+        deploy_tempo
+    fi
     
     # Prepare results directory
     mkdir -p "${RESULTS_DIR}/raw"

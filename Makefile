@@ -192,12 +192,17 @@ clean-results:
 
 # Reset Tempo state (delete and recreate with clean storage)
 reset-tempo:
-	@echo "Resetting Tempo state (deleting traces and storage)..."
-	oc delete tempomonolithic simplest -n $(NAMESPACE) --ignore-not-found=true
-	oc delete deployment minio -n $(NAMESPACE) --ignore-not-found=true
-	oc delete pvc minio -n $(NAMESPACE) --ignore-not-found=true
-	@echo "Waiting for resources to be deleted..."
-	@sleep 10
+	@echo "Resetting Tempo state (deleting jobs, traces and storage)..."
+	oc delete jobs -l app=trace-generator -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete deployment query-load-generator -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete tempomonolithic simplest -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete deployment minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete service minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete secret minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	oc delete pvc minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	@echo "Waiting for all pods to terminate..."
+	@while oc get pods -l app.kubernetes.io/name=tempo -n $(NAMESPACE) --no-headers 2>/dev/null | grep -q .; do sleep 2; done
+	@while oc get pods -l app.kubernetes.io/name=minio -n $(NAMESPACE) --no-headers 2>/dev/null | grep -q .; do sleep 2; done
 	@echo "Redeploying Tempo..."
 	./scripts/deploy-tempo-monolithic.sh
 

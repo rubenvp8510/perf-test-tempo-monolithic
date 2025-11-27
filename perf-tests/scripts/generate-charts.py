@@ -122,6 +122,11 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
         bytes_per_sec = r.get('metrics', {}).get('throughput', {}).get('bytes_per_second', 0)
         mb_per_sec_actual = bytes_per_sec / (1024 * 1024) if bytes_per_sec else 0
         
+        # Get CPU values in cores and convert to millicores
+        cpu_cores = r.get('metrics', {}).get('resources', {}).get('avg_cpu_cores', 0)
+        sustained_cpu_cores = r.get('metrics', {}).get('resources', {}).get('sustained_cpu_cores', 0)
+        recommended_cpu_cores = r.get('metrics', {}).get('resource_recommendations', {}).get('cpu_cores', 0)
+        
         row = {
             'load_name': r.get('load_name', 'unknown'),
             'mb_per_sec': r.get('config', {}).get('mb_per_sec', 0),  # Target rate from config
@@ -130,11 +135,14 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'p50_ms': r.get('metrics', {}).get('query_latencies', {}).get('p50_seconds', 0) * 1000,
             'p90_ms': r.get('metrics', {}).get('query_latencies', {}).get('p90_seconds', 0) * 1000,
             'p99_ms': r.get('metrics', {}).get('query_latencies', {}).get('p99_seconds', 0) * 1000,
-            'cpu_cores': r.get('metrics', {}).get('resources', {}).get('avg_cpu_cores', 0),
+            'cpu_cores': cpu_cores,
+            'cpu_millicores': cpu_cores * 1000,  # Convert to millicores
             'memory_gb': r.get('metrics', {}).get('resources', {}).get('max_memory_gb', 0),
-            'sustained_cpu': r.get('metrics', {}).get('resources', {}).get('sustained_cpu_cores', 0),
+            'sustained_cpu': sustained_cpu_cores,
+            'sustained_cpu_millicores': sustained_cpu_cores * 1000,  # Convert to millicores
             'peak_memory_gb': r.get('metrics', {}).get('resources', {}).get('peak_memory_gb', 0),
-            'recommended_cpu': r.get('metrics', {}).get('resource_recommendations', {}).get('cpu_cores', 0),
+            'recommended_cpu': recommended_cpu_cores,
+            'recommended_cpu_millicores': recommended_cpu_cores * 1000,  # Convert to millicores
             'recommended_memory_gb': r.get('metrics', {}).get('resource_recommendations', {}).get('memory_gb', 0),
             'spans_per_sec': r.get('metrics', {}).get('throughput', {}).get('spans_per_second', 0),
             'error_rate': r.get('metrics', {}).get('errors', {}).get('error_rate_percent', 0),
@@ -175,11 +183,13 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
         
         # Use CPU timestamps as reference
         for ts in sorted(cpu_data.keys()):
+            cpu_val = cpu_data.get(ts, 0)
             rows.append({
                 'load_name': load_name,
                 'timestamp': ts,
                 'datetime': datetime.fromtimestamp(ts),
-                'cpu_cores': cpu_data.get(ts, 0),
+                'cpu_cores': cpu_val,
+                'cpu_millicores': cpu_val * 1000,  # Convert to millicores
                 'memory_gb': memory_data.get(ts, 0),
                 'spans_per_sec': spans_data.get(ts, 0),
                 'bytes_per_sec': bytes_data.get(ts, 0),
@@ -256,11 +266,11 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str,
     x = range(len(df))
     width = 0.35
 
-    # CPU bars on primary axis
-    bars1 = ax1.bar([i - width/2 for i in x], df['cpu_cores'], width,
-                    label='CPU (cores)', color=COLORS['primary'], edgecolor='white', linewidth=0.5)
+    # CPU bars on primary axis (in millicores)
+    bars1 = ax1.bar([i - width/2 for i in x], df['cpu_millicores'], width,
+                    label='CPU (millicores)', color=COLORS['primary'], edgecolor='white', linewidth=0.5)
     ax1.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('CPU (cores)', fontsize=12, fontweight='bold', color=COLORS['primary'])
+    ax1.set_ylabel('CPU (millicores)', fontsize=12, fontweight='bold', color=COLORS['primary'])
     ax1.tick_params(axis='y', labelcolor=COLORS['primary'])
 
     # Memory bars on secondary axis
@@ -270,7 +280,8 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str,
     ax2.set_ylabel('Memory (GB)', fontsize=12, fontweight='bold', color=COLORS['secondary'])
     ax2.tick_params(axis='y', labelcolor=COLORS['secondary'])
 
-    ax1.set_title(f'{report_name}\nResource Usage by Load Level', fontsize=14, fontweight='bold', pad=20)
+    ax1.set_title(f'{report_name}\nResource Usage by Load Level\n(CPU: container_cpu_usage_seconds_total, Memory: container_memory_working_set_bytes)', 
+                  fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
     ax1.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
 
@@ -521,15 +532,15 @@ def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, rep
     
     loads = ts_df['load_name'].unique()
     
-    # CPU chart
+    # CPU chart (in millicores)
     for i, load in enumerate(loads):
         load_data = ts_df[ts_df['load_name'] == load]
-        ax1.plot(load_data['minute'], load_data['cpu_cores'], 
+        ax1.plot(load_data['minute'], load_data['cpu_millicores'], 
                 label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
                 linewidth=2, marker='o', markersize=3)
     
-    ax1.set_ylabel('CPU (cores)', fontsize=11, fontweight='bold')
-    ax1.set_title(f'{report_name}\nCPU Usage Over Time', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('CPU (millicores)', fontsize=11, fontweight='bold')
+    ax1.set_title(f'{report_name}\nCPU Usage Over Time (container_cpu_usage_seconds_total)', fontsize=12, fontweight='bold')
     ax1.legend(loc='upper right', framealpha=0.9)
     ax1.grid(True, linestyle='--', alpha=0.7)
     
@@ -541,7 +552,7 @@ def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, rep
                 linewidth=2, marker='o', markersize=3)
     
     ax2.set_ylabel('Memory (GB)', fontsize=11, fontweight='bold')
-    ax2.set_title('Memory Usage Over Time', fontsize=12, fontweight='bold')
+    ax2.set_title('Memory Usage Over Time (container_memory_working_set_bytes)', fontsize=12, fontweight='bold')
     ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
     ax2.legend(loc='upper right', framealpha=0.9)
     ax2.grid(True, linestyle='--', alpha=0.7)
@@ -694,7 +705,7 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
         rows=2, cols=2,
         subplot_titles=(
             'Query Latency by Load Level',
-            'Resource Usage by Load Level',
+            'Resource Usage (container_cpu_usage_seconds_total)',
             'Bytes Ingested: Target vs Actual',
             'Error Metrics by Load Level'
         ),
@@ -723,8 +734,8 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
 
     # 2. Resources Chart (top-right)
     fig.add_trace(go.Bar(
-        name='CPU (cores)', x=load_labels, y=df['cpu_cores'],
-        marker_color=COLORS['primary'], text=df['cpu_cores'].round(2),
+        name='CPU (millicores)', x=load_labels, y=df['cpu_millicores'],
+        marker_color=COLORS['primary'], text=df['cpu_millicores'].round(0),
         textposition='outside', textfont=dict(size=10)
     ), row=1, col=2)
     fig.add_trace(go.Bar(
@@ -798,7 +809,7 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
 
     # Add axis labels
     fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
-    fig.update_yaxes(title_text="Value", row=1, col=2)
+    fig.update_yaxes(title_text="CPU (millicores) / Memory (GB)", row=1, col=2)
     fig.update_yaxes(title_text="MB/sec", row=2, col=1)
     fig.update_yaxes(title_text="Value", row=2, col=2)
 
@@ -832,7 +843,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
         rows=5, cols=1,
         subplot_titles=(
             'Query Latency Over Time (P50, P90, P99)',
-            'Resource Usage Over Time (CPU & Memory)',
+            'Resource Usage Over Time (container_cpu_usage_seconds_total)',
             'Bytes Ingested Over Time (MB/sec)',
             'Error Metrics Over Time',
             'Average Spans Returned per Query Over Time'
@@ -877,9 +888,9 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
         load_data = ts_df[ts_df['load_name'] == load]
         color = LOAD_COLORS[i % len(LOAD_COLORS)]
         
-        # CPU (primary y-axis)
+        # CPU (primary y-axis) - in millicores
         fig.add_trace(go.Scatter(
-            x=load_data['minute'], y=load_data['cpu_cores'],
+            x=load_data['minute'], y=load_data['cpu_millicores'],
             name=f'{load} CPU', mode='lines+markers',
             line=dict(color=color, width=2),
             marker=dict(size=4),
@@ -985,7 +996,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     
     # Add axis labels
     fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
-    fig.update_yaxes(title_text="CPU (cores)", row=2, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="CPU (millicores)", row=2, col=1, secondary_y=False)
     fig.update_yaxes(title_text="Memory (GB)", row=2, col=1, secondary_y=True)
     fig.update_yaxes(title_text="MB/sec", row=3, col=1)
     fig.update_yaxes(title_text="Failures/sec", row=4, col=1, secondary_y=False)
@@ -1104,9 +1115,9 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>P50 (ms)</th>
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
-                    <th>Sustained CPU</th>
+                    <th>Sustained CPU (m)</th>
                     <th>Peak Memory</th>
-                    <th>Rec. CPU (30%)</th>
+                    <th>Rec. CPU (30%) (m)</th>
                     <th>Rec. Memory (30%)</th>
                     <th>Spans/sec</th>
                     <th>Efficiency</th>
@@ -1127,9 +1138,9 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['p50_ms']:.1f}</td>
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
-                    <td>{row['sustained_cpu']:.3f}</td>
+                    <td>{row['sustained_cpu_millicores']:.0f}</td>
                     <td>{row['peak_memory_gb']:.2f} GB</td>
-                    <td class="metric-rec">{row['recommended_cpu']:.1f}</td>
+                    <td class="metric-rec">{row['recommended_cpu_millicores']:.0f}</td>
                     <td class="metric-rec">{row['recommended_memory_gb']:.1f} GB</td>
                     <td>{row['spans_per_sec']:.0f}</td>
                     <td class="{eff_class}">{row['efficiency']:.1f}%</td>

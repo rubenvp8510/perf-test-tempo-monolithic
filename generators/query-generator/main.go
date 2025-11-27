@@ -380,31 +380,33 @@ func (queryExecutor queryExecutor) run() error {
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
 					log.Printf("[worker-%d] Query failed [%s]: req: %v, status: %d\n", id, bucket.name, req.URL.RawQuery, res.StatusCode)
 					res.Body.Close()
-				} else {
-					// Read and parse response to count spans
-					body, err := io.ReadAll(res.Body)
-					res.Body.Close()
+			} else {
+				// Read and parse response to count spans
+				body, err := io.ReadAll(res.Body)
+				res.Body.Close()
 
-					var spansCount int
-					if err != nil {
-						log.Printf("[worker-%d] error reading response body: %v", id, err)
+				var spansCount int
+				if err != nil {
+					log.Printf("[worker-%d] error reading response body: %v", id, err)
+				} else {
+					var searchResp JaegerSearchResponse
+					if err := json.Unmarshal(body, &searchResp); err != nil {
+						log.Printf("[worker-%d] error parsing response JSON: %v", id, err)
 					} else {
-						var searchResp JaegerSearchResponse
-						if err := json.Unmarshal(body, &searchResp); err != nil {
-							log.Printf("[worker-%d] error parsing response JSON: %v", id, err)
-						} else {
-							// Count total spans across all traces
-							for _, trace := range searchResp.Data {
-								spansCount += len(trace.Spans)
-							}
-							spansReturnedHist.WithLabelValues(queryName).Observe(float64(spansCount))
+						// Count total spans across all traces
+						for _, trace := range searchResp.Data {
+							spansCount += len(trace.Spans)
 						}
 					}
-
-					log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d, timeRange: %s to %s\n",
-						id, bucket.name, queryExecutor.name, queryDuration, res.StatusCode, spansCount,
-						startTime.Format("15:04:05"), endTime.Format("15:04:05"))
 				}
+
+				// Always record spans returned metric (0 if parsing failed, actual count otherwise)
+				spansReturnedHist.WithLabelValues(queryName).Observe(float64(spansCount))
+
+				log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d, timeRange: %s to %s\n",
+					id, bucket.name, queryExecutor.name, queryDuration, res.StatusCode, spansCount,
+					startTime.Format("15:04:05"), endTime.Format("15:04:05"))
+			}
 
 				// Reset ticker with random delay
 				ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))

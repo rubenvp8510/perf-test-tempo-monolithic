@@ -52,27 +52,33 @@ services:
 # Load configurations
 # - name: Human-readable name for the load (used in reports)
 # - mb_per_sec: Target ingestion rate in megabytes per second
-# - parallelism: Number of parallel load generator pods per service
+# - parallelism: Number of parallel load generator pods (replicas)
+# - tps_multiplier: Empirical multiplier to adjust TPS calculation
+#                   (compensates for actual span sizes being smaller than estimated)
 loads:
   - name: "low"
     description: "Low load - baseline test"
     mb_per_sec: 0.7
-    parallelism: 1
+    parallelism: 2
+    tps_multiplier: 4    # Calibrated: hits ~0.75 MB/s ✓
 
   - name: "medium"
     description: "Medium load - typical production"
     mb_per_sec: 2.0
-    parallelism: 2
+    parallelism: 3
+    tps_multiplier: 2.4  # Calibrated: was 1.5 hitting 1.25 MB/s, now targets 2.0 MB/s
 
   - name: "high"
     description: "High load - stress test"
     mb_per_sec: 4.0
-    parallelism: 2
+    parallelism: 4
+    tps_multiplier: 1.8  # Calibrated: was 1.2 hitting 2.67 MB/s, now targets 4.0 MB/s
 
   - name: "very-high"
     description: "Very high load - peak capacity test"
     mb_per_sec: 7.0
-    parallelism: 3
+    parallelism: 5
+    tps_multiplier: 1.45 # Calibrated: was 1 hitting 4.85 MB/s, now targets 7.0 MB/s
 
 # Query generator configuration
 queryGenerator:
