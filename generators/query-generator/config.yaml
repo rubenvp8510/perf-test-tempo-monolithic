@@ -6,7 +6,7 @@ namespace: "tempo-perf-test"
 
 query:
   delay: "5s"
-  concurrentQueries: 1
+  concurrentQueries: 5
 
 timeBuckets:
   - name: "ingester"

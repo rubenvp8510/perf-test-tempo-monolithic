@@ -35,7 +35,7 @@ generate_csv() {
     log_info "Generating CSV report: $output_file"
     
     # Write CSV header
-    echo "load_name,tps,duration_min,p50_latency_ms,p90_latency_ms,p99_latency_ms,avg_cpu_cores,max_memory_gb,spans_per_sec,bytes_per_sec,query_failures_per_sec,error_rate_percent,dropped_spans_per_sec,timestamp" > "$output_file"
+    echo "load_name,tps,duration_min,p50_latency_ms,p90_latency_ms,p99_latency_ms,avg_cpu_cores,max_memory_gb,sustained_cpu_cores,peak_memory_gb,recommended_cpu,recommended_memory_gb,spans_per_sec,bytes_per_sec,query_failures_per_sec,error_rate_percent,dropped_spans_per_sec,timestamp" > "$output_file"
     
     # Process each raw JSON file
     local raw_file
@@ -45,7 +45,7 @@ generate_csv() {
         fi
         
         # Extract values from JSON
-        local load_name tps duration p50 p90 p99 cpu mem spans bytes failures error_rate dropped timestamp
+        local load_name tps duration p50 p90 p99 cpu mem sustained_cpu peak_mem rec_cpu rec_mem spans bytes failures error_rate dropped timestamp
         
         load_name=$(jq -r '.load_name // "unknown"' "$raw_file")
         tps=$(jq -r '.config.tps // 0' "$raw_file")
@@ -64,6 +64,12 @@ generate_csv() {
         # Resources
         cpu=$(jq -r '.metrics.resources.avg_cpu_cores // 0' "$raw_file")
         mem=$(jq -r '.metrics.resources.max_memory_gb // 0' "$raw_file")
+        sustained_cpu=$(jq -r '.metrics.resources.sustained_cpu_cores // 0' "$raw_file")
+        peak_mem=$(jq -r '.metrics.resources.peak_memory_gb // 0' "$raw_file")
+        
+        # Resource recommendations (with 30% safety margin)
+        rec_cpu=$(jq -r '.metrics.resource_recommendations.cpu_cores // 0' "$raw_file")
+        rec_mem=$(jq -r '.metrics.resource_recommendations.memory_gb // 0' "$raw_file")
         
         # Throughput
         spans=$(jq -r '.metrics.throughput.spans_per_second // 0' "$raw_file")
@@ -77,7 +83,7 @@ generate_csv() {
         timestamp=$(jq -r '.timestamp // ""' "$raw_file")
         
         # Write CSV row
-        echo "${load_name},${tps},${duration},${p50_ms},${p90_ms},${p99_ms},${cpu},${mem},${spans},${bytes},${failures},${error_rate},${dropped},${timestamp}" >> "$output_file"
+        echo "${load_name},${tps},${duration},${p50_ms},${p90_ms},${p99_ms},${cpu},${mem},${sustained_cpu},${peak_mem},${rec_cpu},${rec_mem},${spans},${bytes},${failures},${error_rate},${dropped},${timestamp}" >> "$output_file"
     done
     
     log_info "CSV report generated with $(( $(wc -l < "$output_file") - 1 )) entries"

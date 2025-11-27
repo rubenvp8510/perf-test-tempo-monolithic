@@ -132,9 +132,14 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'p99_ms': r.get('metrics', {}).get('query_latencies', {}).get('p99_seconds', 0) * 1000,
             'cpu_cores': r.get('metrics', {}).get('resources', {}).get('avg_cpu_cores', 0),
             'memory_gb': r.get('metrics', {}).get('resources', {}).get('max_memory_gb', 0),
+            'sustained_cpu': r.get('metrics', {}).get('resources', {}).get('sustained_cpu_cores', 0),
+            'peak_memory_gb': r.get('metrics', {}).get('resources', {}).get('peak_memory_gb', 0),
+            'recommended_cpu': r.get('metrics', {}).get('resource_recommendations', {}).get('cpu_cores', 0),
+            'recommended_memory_gb': r.get('metrics', {}).get('resource_recommendations', {}).get('memory_gb', 0),
             'spans_per_sec': r.get('metrics', {}).get('throughput', {}).get('spans_per_second', 0),
             'error_rate': r.get('metrics', {}).get('errors', {}).get('error_rate_percent', 0),
             'dropped_spans': r.get('metrics', {}).get('errors', {}).get('dropped_spans_per_second', 0),
+            'avg_spans_returned': r.get('metrics', {}).get('query_results', {}).get('avg_spans_returned', 0),
         }
         rows.append(row)
 
@@ -166,6 +171,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
         p99_data = {item['timestamp']: item['value'] for item in timeseries.get('p99_latency_seconds', [])}
         failures_data = {item['timestamp']: item['value'] for item in timeseries.get('query_failures_per_second', [])}
         dropped_data = {item['timestamp']: item['value'] for item in timeseries.get('dropped_spans_per_second', [])}
+        spans_returned_data = {item['timestamp']: item['value'] for item in timeseries.get('avg_spans_returned', [])}
         
         # Use CPU timestamps as reference
         for ts in sorted(cpu_data.keys()):
@@ -182,6 +188,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
                 'p99_ms': p99_data.get(ts, 0) * 1000,
                 'query_failures': failures_data.get(ts, 0),
                 'dropped_spans': dropped_data.get(ts, 0),
+                'avg_spans_returned': spans_returned_data.get(ts, 0),
             })
     
     if not rows:
@@ -412,6 +419,42 @@ def create_bytes_ingested_chart(df: pd.DataFrame, output_dir: Path, report_name:
     print(f"  ✅ Created: {output_path}")
 
 
+def create_spans_returned_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create average spans returned per query bar chart."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.6
+
+    bars = ax.bar(x, df['avg_spans_returned'], width,
+                  label='Avg Spans Returned', color=COLORS['accent'],
+                  edgecolor='white', linewidth=0.5)
+
+    ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Average Spans Returned', fontsize=12, fontweight='bold')
+    ax.set_title(f'{report_name}\nAverage Spans Returned per Query', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
+    ax.legend(loc='upper left', framealpha=0.9)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        if height > 0:
+            ax.annotate(f'{height:.1f}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 5), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=10,
+                        color=COLORS['text'], fontweight='bold')
+
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-spans_returned.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
 def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all static PNG charts."""
     print("\n📊 Generating static charts (PNG)...")
@@ -423,6 +466,7 @@ def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str,
     create_throughput_chart(df, charts_dir, report_name, timestamp)
     create_error_chart(df, charts_dir, report_name, timestamp)
     create_bytes_ingested_chart(df, charts_dir, report_name, timestamp)
+    create_spans_returned_chart(df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -592,6 +636,34 @@ def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report
     print(f"  ✅ Created: {output_path}")
 
 
+def create_timeseries_spans_returned_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create time-series chart showing average spans returned per query over time."""
+    if ts_df.empty:
+        return
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    loads = ts_df['load_name'].unique()
+    
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax.plot(load_data['minute'], load_data['avg_spans_returned'], 
+               label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+               linewidth=2, marker='o', markersize=3)
+    
+    ax.set_ylabel('Avg Spans Returned', fontsize=11, fontweight='bold')
+    ax.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax.set_title(f'{report_name}\nAverage Spans Returned per Query Over Time', fontsize=12, fontweight='bold')
+    ax.legend(loc='upper right', framealpha=0.9)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-timeseries_spans_returned.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
 def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all time-series PNG charts."""
     if ts_df.empty:
@@ -606,6 +678,7 @@ def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_nam
     create_timeseries_resources_chart(ts_df, charts_dir, report_name, timestamp)
     create_timeseries_throughput_chart(ts_df, charts_dir, report_name, timestamp)
     create_timeseries_errors_chart(ts_df, charts_dir, report_name, timestamp)
+    create_timeseries_spans_returned_chart(ts_df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -754,18 +827,19 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     
     loads = ts_df['load_name'].unique()
     
-    # Create subplot figure with 4 rows
+    # Create subplot figure with 5 rows
     fig = make_subplots(
-        rows=4, cols=1,
+        rows=5, cols=1,
         subplot_titles=(
             'Query Latency Over Time (P50, P90, P99)',
             'Resource Usage Over Time (CPU & Memory)',
             'Bytes Ingested Over Time (MB/sec)',
-            'Error Metrics Over Time'
+            'Error Metrics Over Time',
+            'Average Spans Returned per Query Over Time'
         ),
-        vertical_spacing=0.08,
+        vertical_spacing=0.06,
         specs=[[{"secondary_y": False}], [{"secondary_y": True}], 
-               [{"secondary_y": False}], [{"secondary_y": True}]]
+               [{"secondary_y": False}], [{"secondary_y": True}], [{"secondary_y": False}]]
     )
     
     # Row 1: Latency metrics
@@ -859,6 +933,19 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
             legendgroup=f'{load}_err', showlegend=False,
         ), row=4, col=1, secondary_y=True)
     
+    # Row 5: Average Spans Returned per Query
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['avg_spans_returned'],
+            name=f'{load} Spans Returned', mode='lines+markers',
+            line=dict(color=color, width=2),
+            marker=dict(size=4),
+            legendgroup=f'{load}_sr',
+        ), row=5, col=1)
+    
     # Update layout
     fig.update_layout(
         title=dict(
@@ -881,7 +968,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
         paper_bgcolor=COLORS['background'],
         plot_bgcolor=COLORS['surface'],
         font=dict(color=COLORS['text']),
-        height=1400,
+        height=1700,
         hovermode='x unified'
     )
     
@@ -889,7 +976,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     fig.update_xaxes(
         showgrid=True, gridwidth=1, gridcolor='#333355',
         tickfont=dict(color=COLORS['text']),
-        title_text="Time (minutes)", row=4, col=1
+        title_text="Time (minutes)", row=5, col=1
     )
     fig.update_yaxes(
         showgrid=True, gridwidth=1, gridcolor='#333355',
@@ -903,6 +990,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     fig.update_yaxes(title_text="MB/sec", row=3, col=1)
     fig.update_yaxes(title_text="Failures/sec", row=4, col=1, secondary_y=False)
     fig.update_yaxes(title_text="Dropped/sec", row=4, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="Avg Spans", row=5, col=1)
     
     # Save dashboard
     output_path = output_dir / 'timeseries-dashboard.html'
@@ -988,11 +1076,18 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
         .metric-good {{ color: {COLORS['success']}; }}
         .metric-warn {{ color: {COLORS['warning']}; }}
         .metric-bad {{ color: {COLORS['secondary']}; }}
+        .metric-rec {{ color: {COLORS['accent']}; font-weight: bold; }}
         .footer {{
             text-align: center;
             margin-top: 30px;
             color: #888;
             font-size: 0.9em;
+        }}
+        .section-header {{
+            background-color: {COLORS['surface']};
+            color: {COLORS['primary']};
+            font-weight: bold;
+            text-align: center;
         }}
     </style>
 </head>
@@ -1009,8 +1104,10 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>P50 (ms)</th>
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
-                    <th>CPU (cores)</th>
-                    <th>Memory (GB)</th>
+                    <th>Sustained CPU</th>
+                    <th>Peak Memory</th>
+                    <th>Rec. CPU (30%)</th>
+                    <th>Rec. Memory (30%)</th>
                     <th>Spans/sec</th>
                     <th>Efficiency</th>
                     <th>Error Rate</th>
@@ -1030,8 +1127,10 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['p50_ms']:.1f}</td>
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
-                    <td>{row['cpu_cores']:.2f}</td>
-                    <td>{row['memory_gb']:.2f}</td>
+                    <td>{row['sustained_cpu']:.3f}</td>
+                    <td>{row['peak_memory_gb']:.2f} GB</td>
+                    <td class="metric-rec">{row['recommended_cpu']:.1f}</td>
+                    <td class="metric-rec">{row['recommended_memory_gb']:.1f} GB</td>
                     <td>{row['spans_per_sec']:.0f}</td>
                     <td class="{eff_class}">{row['efficiency']:.1f}%</td>
                     <td class="{err_class}">{row['error_rate']:.2f}%</td>
@@ -1040,7 +1139,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
 
     html_content += """            </tbody>
         </table>
-        <p class="footer">Generated by Tempo Performance Test Framework</p>
+        <p class="footer">Generated by Tempo Performance Test Framework (Resource recommendations include 30% safety margin)</p>
     </div>
 </body>
 </html>

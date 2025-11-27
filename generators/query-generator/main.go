@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -15,6 +17,34 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v3"
 )
+
+// Global metrics - registered once at startup
+var (
+	// Query latency histogram with query name label
+	queryLatencyHist *prometheus.HistogramVec
+
+	// Query failures counter with query name label
+	queryFailuresCounter *prometheus.CounterVec
+
+	// Time bucket query counter
+	bucketQueryCounter *prometheus.CounterVec
+
+	// Time bucket duration histogram
+	bucketDurationHist *prometheus.HistogramVec
+
+	// Spans returned histogram with query name label
+	spansReturnedHist *prometheus.HistogramVec
+)
+
+// JaegerSearchResponse represents the response from Jaeger /api/search endpoint
+type JaegerSearchResponse struct {
+	Data []struct {
+		TraceID string `json:"traceID"`
+		Spans   []struct {
+			SpanID string `json:"spanID"`
+		} `json:"spans"`
+	} `json:"data"`
+}
 
 // Config represents the YAML configuration structure
 type Config struct {
@@ -128,6 +158,53 @@ func selectTimeBucket(buckets []timeBucket, testStartTime time.Time) *timeBucket
 	return &eligible[0]
 }
 
+// initMetrics initializes all Prometheus metrics once at startup
+func initMetrics(namespace string) {
+	// Sanitize namespace for metric names
+	sanitizedNs := strings.ReplaceAll(namespace, "-", "_")
+
+	// Query latency histogram with query name label
+	queryLatencyHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "query_load_test",
+		Name:      sanitizedNs,
+		Help:      "Query latency in seconds",
+	}, []string{"name"})
+
+	// Query failures counter with query name label
+	queryFailuresCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "query_failures_count",
+		Name:      sanitizedNs,
+		Help:      "Total query failures",
+	}, []string{"name"})
+
+	// Time bucket query counter
+	bucketQueryCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "query_load_test",
+		Subsystem: "time_bucket",
+		Name:      "queries_total",
+		Help:      "Total queries executed per time bucket",
+	}, []string{"bucket", "query_name"})
+
+	// Time bucket duration histogram
+	bucketDurationHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "query_load_test",
+		Subsystem: "time_bucket",
+		Name:      "duration_seconds",
+		Help:      "Query duration per time bucket",
+	}, []string{"bucket", "query_name"})
+
+	// Spans returned histogram with query name label
+	spansReturnedHist = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "query_load_test",
+		Subsystem: "spans_returned",
+		Name:      sanitizedNs,
+		Help:      "Number of spans returned per query",
+		Buckets:   []float64{0, 10, 50, 100, 250, 500, 1000, 2500, 5000},
+	}, []string{"name"})
+
+	log.Printf("Metrics initialized for namespace: %s (sanitized: %s)", namespace, sanitizedNs)
+}
+
 func main() {
 	// Get config file path from environment variable (default to /config/config.yaml)
 	configPath := os.Getenv("CONFIG_FILE")
@@ -142,6 +219,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	// Initialize metrics ONCE with the configured namespace
+	initMetrics(config.Namespace)
 
 	// Parse query delay
 	queryDelay, err := time.ParseDuration(config.Query.Delay)
@@ -219,32 +299,8 @@ func (queryExecutor queryExecutor) run() error {
 		Timeout: time.Minute * 15,
 	}
 
-	reqHist := promauto.NewHistogram(prometheus.HistogramOpts{
-		Namespace:   "query_load_test",
-		Name:        strings.ReplaceAll(queryExecutor.namespace, "-", "_"),
-		ConstLabels: prometheus.Labels{"name": queryExecutor.name},
-	})
-
-	failCounter := promauto.NewCounter(prometheus.CounterOpts{
-		Namespace:   "query_failures_count",
-		Name:        strings.ReplaceAll(queryExecutor.namespace, "-", "_"),
-		ConstLabels: prometheus.Labels{"name": queryExecutor.name},
-	})
-
-	// Add bucket-specific metrics
-	bucketCounter := promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "query_load_test",
-		Subsystem: "time_bucket",
-		Name:      "queries_total",
-		Help:      "Total queries executed per time bucket",
-	}, []string{"bucket", "query_name"})
-
-	bucketDuration := promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: "query_load_test",
-		Subsystem: "time_bucket",
-		Name:      "duration_seconds",
-		Help:      "Query duration per time bucket",
-	}, []string{"bucket", "query_name"})
+	// Use global metrics with this executor's query name as label
+	queryName := queryExecutor.name
 
 	log.Printf("Starting query executor for: %s (concurrency: %d)\n", queryExecutor.name, queryExecutor.concurrency)
 
@@ -290,8 +346,8 @@ func (queryExecutor queryExecutor) run() error {
 				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", queryExecutor.queryEndpoint, queryExecutor.query), nil)
 				if err != nil {
 					log.Printf("[worker-%d] error creating http request: %v", id, err)
-					failCounter.Inc()
-					bucketCounter.WithLabelValues(bucket.name, queryExecutor.name).Inc()
+					queryFailuresCounter.WithLabelValues(queryName).Inc()
+					bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
 					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
@@ -309,26 +365,46 @@ func (queryExecutor queryExecutor) run() error {
 				res, err := client.Do(req)
 				if err != nil {
 					log.Printf("[worker-%d] error making http request: %v", id, err)
-					failCounter.Inc()
-					bucketCounter.WithLabelValues(bucket.name, queryExecutor.name).Inc()
+					queryFailuresCounter.WithLabelValues(queryName).Inc()
+					bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
 					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
 
 				queryDuration := time.Since(start).Seconds()
-				reqHist.Observe(queryDuration)
-				bucketDuration.WithLabelValues(bucket.name, queryExecutor.name).Observe(queryDuration)
-				bucketCounter.WithLabelValues(bucket.name, queryExecutor.name).Inc()
+				queryLatencyHist.WithLabelValues(queryName).Observe(queryDuration)
+				bucketDurationHist.WithLabelValues(bucket.name, queryName).Observe(queryDuration)
+				bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
 
 				if res.StatusCode >= 300 {
-					failCounter.Inc()
+					queryFailuresCounter.WithLabelValues(queryName).Inc()
 					log.Printf("[worker-%d] Query failed [%s]: req: %v, status: %d\n", id, bucket.name, req.URL.RawQuery, res.StatusCode)
+					res.Body.Close()
 				} else {
-					log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, timeRange: %s to %s\n",
-						id, bucket.name, queryExecutor.name, queryDuration, res.StatusCode,
+					// Read and parse response to count spans
+					body, err := io.ReadAll(res.Body)
+					res.Body.Close()
+
+					var spansCount int
+					if err != nil {
+						log.Printf("[worker-%d] error reading response body: %v", id, err)
+					} else {
+						var searchResp JaegerSearchResponse
+						if err := json.Unmarshal(body, &searchResp); err != nil {
+							log.Printf("[worker-%d] error parsing response JSON: %v", id, err)
+						} else {
+							// Count total spans across all traces
+							for _, trace := range searchResp.Data {
+								spansCount += len(trace.Spans)
+							}
+							spansReturnedHist.WithLabelValues(queryName).Observe(float64(spansCount))
+						}
+					}
+
+					log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d, timeRange: %s to %s\n",
+						id, bucket.name, queryExecutor.name, queryDuration, res.StatusCode, spansCount,
 						startTime.Format("15:04:05"), endTime.Format("15:04:05"))
 				}
-				res.Body.Close()
 
 				// Reset ticker with random delay
 				ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))

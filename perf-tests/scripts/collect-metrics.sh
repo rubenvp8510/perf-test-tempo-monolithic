@@ -220,6 +220,31 @@ collect_error_metrics() {
 }
 
 #
+# Collect spans returned metrics (from query results)
+#
+collect_spans_returned_metrics() {
+    log_info "Collecting spans returned metrics..."
+    
+    # Average spans returned per query (sum/count from histogram)
+    local sum_response count_response
+    sum_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_sum[5m]))")
+    count_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_count[5m]))")
+    
+    local sum_val count_val
+    sum_val=$(extract_value "$sum_response" "0")
+    count_val=$(extract_value "$count_response" "0")
+    
+    # Calculate average (sum/count)
+    if [ "$count_val" != "0" ] && [ "$(echo "$count_val > 0" | bc 2>/dev/null || echo "0")" = "1" ]; then
+        AVG_SPANS_RETURNED=$(echo "scale=2; $sum_val / $count_val" | bc 2>/dev/null || echo "0")
+    else
+        AVG_SPANS_RETURNED="0"
+    fi
+    
+    log_info "Average spans returned per query: ${AVG_SPANS_RETURNED}"
+}
+
+#
 # Collect time-series data using range queries (1-minute granularity)
 #
 collect_timeseries_data() {
@@ -297,9 +322,69 @@ collect_timeseries_data() {
         "$start_time" "$end_time" "60")
     TS_DROPPED=$(extract_timeseries "$dropped_response")
     
+    # Average spans returned per query time-series (sum/count from histogram)
+    local spans_ret_sum_response spans_ret_count_response
+    spans_ret_sum_response=$(prom_range_query \
+        "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_sum[1m]))" \
+        "$start_time" "$end_time" "60")
+    spans_ret_count_response=$(prom_range_query \
+        "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_count[1m]))" \
+        "$start_time" "$end_time" "60")
+    
+    # Calculate average per timestamp using jq
+    local sum_ts count_ts
+    sum_ts=$(extract_timeseries "$spans_ret_sum_response")
+    count_ts=$(extract_timeseries "$spans_ret_count_response")
+    
+    TS_SPANS_RETURNED=$(jq -n \
+        --argjson sum_ts "$sum_ts" \
+        --argjson count_ts "$count_ts" \
+        '[range(0; ($sum_ts | length))] | map({
+            timestamp: $sum_ts[.].timestamp,
+            value: (if $count_ts[.].value > 0 then ($sum_ts[.].value / $count_ts[.].value) else 0 end)
+        })' 2>/dev/null || echo "[]")
+    
     local sample_count
     sample_count=$(echo "$TS_CPU" | jq 'length' 2>/dev/null || echo "0")
     log_info "Collected $sample_count time-series data points"
+}
+
+#
+# Calculate resource recommendations with safety margin
+#
+calculate_resource_recommendations() {
+    log_info "Calculating resource recommendations (30% safety margin)..."
+    
+    # Peak memory from time-series (maximum value observed)
+    if [ "$TS_MEMORY" != "[]" ] && [ -n "$TS_MEMORY" ]; then
+        PEAK_MEMORY_GB=$(echo "$TS_MEMORY" | jq '[.[].value] | max' 2>/dev/null || echo "0")
+    else
+        PEAK_MEMORY_GB="$MAX_MEMORY_GB"
+    fi
+    
+    # Sustained CPU from time-series (average value, excluding first 2 samples for ramp-up)
+    if [ "$TS_CPU" != "[]" ] && [ -n "$TS_CPU" ]; then
+        # Skip first 2 samples to exclude ramp-up period
+        SUSTAINED_CPU=$(echo "$TS_CPU" | jq '
+            if length > 2 then .[2:] else . end |
+            [.[].value] | add / length
+        ' 2>/dev/null || echo "$AVG_CPU")
+    else
+        SUSTAINED_CPU="$AVG_CPU"
+    fi
+    
+    # Calculate recommendations with 30% safety margin
+    RECOMMENDED_CPU=$(echo "scale=3; $SUSTAINED_CPU * 1.30" | bc 2>/dev/null || echo "0")
+    RECOMMENDED_MEMORY_GB=$(echo "scale=3; $PEAK_MEMORY_GB * 1.30" | bc 2>/dev/null || echo "0")
+    
+    # Round up CPU to nearest 100m (0.1 cores)
+    RECOMMENDED_CPU=$(echo "scale=1; x=$RECOMMENDED_CPU * 10; scale=0; x=x+0.9; x/=1; scale=1; x/10" | bc 2>/dev/null || echo "0.1")
+    
+    # Round up memory to nearest 0.5 GB
+    RECOMMENDED_MEMORY_GB=$(echo "scale=1; x=$RECOMMENDED_MEMORY_GB * 2; scale=0; x=x+0.9; x/=1; scale=1; x/2" | bc 2>/dev/null || echo "0.5")
+    
+    log_info "Peak Memory: ${PEAK_MEMORY_GB} GB, Sustained CPU: ${SUSTAINED_CPU} cores"
+    log_info "Recommended (with 30% margin) - CPU: ${RECOMMENDED_CPU} cores, Memory: ${RECOMMENDED_MEMORY_GB} GB"
 }
 
 #
@@ -320,11 +405,16 @@ write_metrics_json() {
         --argjson p99 "${P99_LATENCY:-0}" \
         --argjson cpu "${AVG_CPU:-0}" \
         --argjson mem "${MAX_MEMORY_GB:-0}" \
+        --argjson sustained_cpu "${SUSTAINED_CPU:-0}" \
+        --argjson peak_memory "${PEAK_MEMORY_GB:-0}" \
+        --argjson recommended_cpu "${RECOMMENDED_CPU:-0}" \
+        --argjson recommended_memory "${RECOMMENDED_MEMORY_GB:-0}" \
         --argjson spans "${SPANS_PER_SEC:-0}" \
         --argjson bytes "${BYTES_PER_SEC:-0}" \
         --argjson failures "${QUERY_FAILURES:-0}" \
         --argjson error_rate "${ERROR_RATE:-0}" \
         --argjson dropped "${DROPPED_SPANS:-0}" \
+        --argjson avg_spans_returned "${AVG_SPANS_RETURNED:-0}" \
         --argjson ts_cpu "${TS_CPU:-[]}" \
         --argjson ts_memory "${TS_MEMORY:-[]}" \
         --argjson ts_spans "${TS_SPANS:-[]}" \
@@ -334,6 +424,7 @@ write_metrics_json() {
         --argjson ts_p99 "${TS_P99:-[]}" \
         --argjson ts_failures "${TS_FAILURES:-[]}" \
         --argjson ts_dropped "${TS_DROPPED:-[]}" \
+        --argjson ts_spans_returned "${TS_SPANS_RETURNED:-[]}" \
         '{
           timestamp: $timestamp,
           load_name: $load_name,
@@ -345,7 +436,14 @@ write_metrics_json() {
             },
             resources: {
               avg_cpu_cores: $cpu,
-              max_memory_gb: $mem
+              max_memory_gb: $mem,
+              sustained_cpu_cores: $sustained_cpu,
+              peak_memory_gb: $peak_memory
+            },
+            resource_recommendations: {
+              safety_margin_percent: 30,
+              cpu_cores: $recommended_cpu,
+              memory_gb: $recommended_memory
             },
             throughput: {
               spans_per_second: $spans,
@@ -355,6 +453,9 @@ write_metrics_json() {
               query_failures_per_second: $failures,
               error_rate_percent: $error_rate,
               dropped_spans_per_second: $dropped
+            },
+            query_results: {
+              avg_spans_returned: $avg_spans_returned
             }
           },
           timeseries: {
@@ -367,7 +468,8 @@ write_metrics_json() {
             p90_latency_seconds: $ts_p90,
             p99_latency_seconds: $ts_p99,
             query_failures_per_second: $ts_failures,
-            dropped_spans_per_second: $ts_dropped
+            dropped_spans_per_second: $ts_dropped,
+            avg_spans_returned: $ts_spans_returned
           }
         }' > "$output_file"
     
@@ -409,12 +511,17 @@ main() {
     P99_LATENCY="0"
     AVG_CPU="0"
     MAX_MEMORY_GB="0"
+    SUSTAINED_CPU="0"
+    PEAK_MEMORY_GB="0"
+    RECOMMENDED_CPU="0"
+    RECOMMENDED_MEMORY_GB="0"
     SPANS_PER_SEC="0"
     BYTES_PER_SEC="0"
     QUERY_FAILURES="0"
     ERROR_RATE="0"
     DROPPED_SPANS="0"
     TOTAL_QUERIES="0"
+    AVG_SPANS_RETURNED="0"
     
     # Initialize time-series variables
     TS_CPU="[]"
@@ -426,13 +533,16 @@ main() {
     TS_P99="[]"
     TS_FAILURES="[]"
     TS_DROPPED="[]"
+    TS_SPANS_RETURNED="[]"
     
     get_prometheus_access
     collect_query_latencies
     collect_resource_metrics
     collect_throughput_metrics
     collect_error_metrics
+    collect_spans_returned_metrics
     collect_timeseries_data "$duration_minutes"
+    calculate_resource_recommendations
     write_metrics_json "$load_name" "$output_file"
     
     echo ""

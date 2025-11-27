@@ -105,17 +105,21 @@ data:
 
     query:
       delay: "5s"
-      concurrentQueries: 1
+      concurrentQueries: 5
 
     timeBuckets:
+      - name: "recent"
+        ageStart: "30s"
+        ageEnd: "5m"
+        weight: 30
       - name: "ingester"
         ageStart: "5m"
         ageEnd: "15m"
-        weight: 40
+        weight: 35
       - name: "backend-1h"
         ageStart: "1h"
         ageEnd: "2h"
-        weight: 60
+        weight: 35
 
     queries:
       - name: "loadtest_limit20"
