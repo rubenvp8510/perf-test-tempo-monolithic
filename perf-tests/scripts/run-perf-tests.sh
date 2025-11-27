@@ -12,6 +12,7 @@ set -euo pipefail
 #   -l, --load <name>       Run only specific load (can be repeated)
 #   -s, --skip-monitoring   Skip monitoring setup
 #   -k, --keep-generators   Don't cleanup generators between tests
+#   -f, --fresh             Recreate Tempo with clean state before each test
 #   -h, --help              Show this help message
 #
 
@@ -27,6 +28,7 @@ DURATION_OVERRIDE=""
 SPECIFIC_LOADS=()
 SKIP_MONITORING=false
 KEEP_GENERATORS=false
+FRESH_STATE=false
 
 # Namespace configuration
 PERF_TEST_NAMESPACE="tempo-perf-test"
@@ -59,6 +61,7 @@ Options:
   -l, --load <name>       Run only specific load (can be repeated)
   -s, --skip-monitoring   Skip monitoring setup check
   -k, --keep-generators   Don't cleanup generators between tests
+  -f, --fresh             Recreate Tempo with clean state before each test
   -h, --help              Show this help message
 
 Examples:
@@ -95,6 +98,10 @@ parse_args() {
                 ;;
             -k|--keep-generators)
                 KEEP_GENERATORS=true
+                shift
+                ;;
+            -f|--fresh)
+                FRESH_STATE=true
                 shift
                 ;;
             -h|--help)
@@ -164,6 +171,31 @@ ensure_monitoring() {
 }
 
 #
+# Reset Tempo state (delete and recreate with clean storage)
+#
+reset_tempo_state() {
+    log_section "Resetting Tempo State (Fresh)"
+    
+    log_info "Deleting TempoMonolithic..."
+    oc delete tempomonolithic simplest -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
+    
+    log_info "Deleting MinIO deployment and storage..."
+    oc delete deployment minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
+    oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true
+    
+    log_wait "Waiting for resources to be deleted..."
+    sleep 10
+    
+    # Wait for PVC to be fully deleted
+    while oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null; do
+        log_wait "Waiting for MinIO PVC to be deleted..."
+        sleep 5
+    done
+    
+    log_info "Tempo state reset complete."
+}
+
+#
 # Deploy Tempo Monolithic
 #
 deploy_tempo() {
@@ -192,32 +224,170 @@ get_all_loads() {
 }
 
 #
+# Get service count from config
+#
+get_service_count() {
+    yq eval '.services | length' "$CONFIG_FILE"
+}
+
+#
+# Read service configuration from YAML
+#
+read_service_config() {
+    local index="$1"
+    local field="$2"
+    
+    yq eval ".services[$index].$field" "$CONFIG_FILE"
+}
+
+#
+# Calculate weighted average spans per trace based on service configs
+# Returns the weighted sum of nspans across all services
+#
+calculate_weighted_avg_spans() {
+    local service_count
+    service_count=$(get_service_count)
+    
+    local total_weighted_spans=0
+    
+    for ((i=0; i<service_count; i++)); do
+        local nspans weight
+        nspans=$(read_service_config "$i" "nspans")
+        weight=$(read_service_config "$i" "weight")
+        
+        # weighted_spans = nspans * (weight / 100)
+        local weighted
+        weighted=$(echo "scale=2; $nspans * $weight / 100" | bc)
+        total_weighted_spans=$(echo "scale=2; $total_weighted_spans + $weighted" | bc)
+    done
+    
+    echo "$total_weighted_spans"
+}
+
+#
+# Convert MB/s to TPS using estimation config
+# TPS = (mb_per_sec * 1024 * 1024) / (weighted_avg_spans * bytes_per_span)
+#
+convert_mb_to_tps() {
+    local mb_per_sec="$1"
+    
+    local bytes_per_span weighted_avg_spans bytes_per_sec tps
+    
+    # Get estimation config
+    bytes_per_span=$(yq eval '.estimatedBytesPerSpan // 800' "$CONFIG_FILE")
+    
+    # Calculate weighted average spans per trace
+    weighted_avg_spans=$(calculate_weighted_avg_spans)
+    
+    # Convert MB/s to bytes/s
+    bytes_per_sec=$(echo "scale=0; $mb_per_sec * 1024 * 1024" | bc)
+    
+    # Calculate TPS: bytes_per_sec / (weighted_avg_spans * bytes_per_span)
+    tps=$(echo "scale=0; $bytes_per_sec / ($weighted_avg_spans * $bytes_per_span)" | bc)
+    
+    # Ensure at least 1 TPS
+    if [ "$tps" -lt 1 ]; then
+        tps=1
+    fi
+    
+    echo "$tps"
+}
+
+#
+# Generate containers YAML for all services
+#
+generate_containers_yaml() {
+    local total_tps="$1"
+    local runtime="$2"
+    local tempo_host="$3"
+    local tempo_port="$4"
+    
+    local service_count
+    service_count=$(get_service_count)
+    
+    local containers_yaml=""
+    
+    for ((i=0; i<service_count; i++)); do
+        local service_name depth nspans weight service_tps
+        service_name=$(read_service_config "$i" "name")
+        depth=$(read_service_config "$i" "depth")
+        nspans=$(read_service_config "$i" "nspans")
+        weight=$(read_service_config "$i" "weight")
+        
+        # Calculate TPS for this service based on weight
+        # service_tps = total_tps * weight / 100
+        service_tps=$(echo "$total_tps * $weight / 100" | bc)
+        
+        # Ensure at least 1 TPS per service
+        if [ "$service_tps" -lt 1 ]; then
+            service_tps=1
+        fi
+        
+        # Generate container YAML (8 spaces indentation for containers array)
+        containers_yaml+="        - name: ${service_name//[^a-z0-9-]/-}
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=${service_name}
+            - --tps=${service_tps}
+            - --depth=${depth}
+            - --nspans=${nspans}
+            - --runtime=${runtime}
+            - --ramptime=1s
+            - --tracecount=0
+            - --protocol=grpc
+            - --sender=otel
+            - --host=${tempo_host}:${tempo_port}
+            - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+"
+    done
+    
+    echo "$containers_yaml"
+}
+
+#
 # Generate trace generator job from template
 #
 generate_trace_job() {
     local load_name="$1"
     local runtime="$2"
     
-    local tps parallelism depth nspans tempo_host tempo_port
-    tps=$(read_load_config "$load_name" "tps")
+    local mb_per_sec tps parallelism tempo_host tempo_port namespace
+    mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
+    tps=$(convert_mb_to_tps "$mb_per_sec")
     parallelism=$(read_load_config "$load_name" "parallelism")
-    depth=$(read_load_config "$load_name" "depth")
-    nspans=$(read_load_config "$load_name" "nspans")
     tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
     tempo_port=$(yq eval '.tempo.grpcPort' "$CONFIG_FILE")
     namespace=$(yq eval '.namespace' "$CONFIG_FILE")
     
+    # Generate containers YAML for all services
+    local containers_yaml
+    containers_yaml=$(generate_containers_yaml "$tps" "$runtime" "$tempo_host" "$tempo_port")
+    
     # Read template and substitute variables
+    # Use a temp file to handle multi-line containers replacement
+    local tmp_template
+    tmp_template=$(mktemp)
+    
     sed -e "s/{{LOAD_NAME}}/${load_name}/g" \
         -e "s/{{NAMESPACE}}/${namespace}/g" \
-        -e "s/{{TPS}}/${tps}/g" \
         -e "s/{{PARALLELISM}}/${parallelism}/g" \
-        -e "s/{{DEPTH}}/${depth}/g" \
-        -e "s/{{NSPANS}}/${nspans}/g" \
         -e "s/{{RUNTIME}}/${runtime}/g" \
         -e "s/{{TEMPO_HOST}}/${tempo_host}/g" \
         -e "s/{{TEMPO_PORT}}/${tempo_port}/g" \
-        "${TEMPLATES_DIR}/trace-generator.yaml.tmpl"
+        "${TEMPLATES_DIR}/trace-generator.yaml.tmpl" > "$tmp_template"
+    
+    # Replace {{CONTAINERS}} placeholder with actual containers YAML
+    # Using awk to handle multi-line replacement
+    awk -v containers="$containers_yaml" '{gsub(/{{CONTAINERS}}/, containers); print}' "$tmp_template"
+    
+    rm -f "$tmp_template"
 }
 
 #
@@ -227,10 +397,31 @@ deploy_generators() {
     local load_name="$1"
     local runtime="$2"
     
+    local mb_per_sec total_tps
+    mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
+    total_tps=$(convert_mb_to_tps "$mb_per_sec")
+    
     log_info "Deploying generators for load: $load_name"
+    log_info "Target rate: ${mb_per_sec} MB/s (converted to ${total_tps} TPS)"
+    
+    # Show service distribution
+    local service_count
+    service_count=$(get_service_count)
+    log_info "Services configured: $service_count"
+    
+    for ((i=0; i<service_count; i++)); do
+        local service_name depth nspans weight service_tps
+        service_name=$(read_service_config "$i" "name")
+        depth=$(read_service_config "$i" "depth")
+        nspans=$(read_service_config "$i" "nspans")
+        weight=$(read_service_config "$i" "weight")
+        service_tps=$(echo "$total_tps * $weight / 100" | bc)
+        [ "$service_tps" -lt 1 ] && service_tps=1
+        log_info "  - $service_name: ${service_tps} TPS, depth=$depth, spans=$nspans (${weight}%)"
+    done
     
     # Deploy trace generator
-    log_info "Deploying trace generator (TPS: $(read_load_config "$load_name" "tps"))..."
+    log_info "Deploying multi-service trace generator..."
     generate_trace_job "$load_name" "$runtime" | oc apply -f -
     
     # Deploy query generator
@@ -329,12 +520,21 @@ run_load_test() {
     
     log_section "Load Test [$test_number/$total_tests]: $load_name"
     
-    local description
+    local description service_count mb_per_sec calculated_tps
     description=$(read_load_config "$load_name" "description")
+    service_count=$(get_service_count)
+    mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
+    calculated_tps=$(convert_mb_to_tps "$mb_per_sec")
     log_info "Description: $description"
-    log_info "TPS: $(read_load_config "$load_name" "tps")"
-    log_info "Parallelism: $(read_load_config "$load_name" "parallelism")"
+    log_info "Target rate: ${mb_per_sec} MB/s (${calculated_tps} TPS across $service_count services)"
+    log_info "Parallelism: $(read_load_config "$load_name" "parallelism") pods"
     log_info "Duration: $duration"
+    
+    # Reset Tempo state if --fresh flag is set
+    if [ "$FRESH_STATE" = true ]; then
+        reset_tempo_state
+        deploy_tempo
+    fi
     
     # Deploy generators
     deploy_generators "$load_name" "$duration"
@@ -353,15 +553,12 @@ run_load_test() {
     
     "${SCRIPT_DIR}/collect-metrics.sh" "$load_name" "$raw_output" "$duration_min"
     
-    # Add config info to the raw output
-    local tps
-    tps=$(read_load_config "$load_name" "tps")
-    
+    # Add config info to the raw output (mb_per_sec is the primary metric now)
     # Update JSON with config
     local tmp_file
     tmp_file=$(mktemp)
-    jq --arg tps "$tps" --arg dur "$duration_min" \
-        '. + {config: {tps: ($tps | tonumber), duration_minutes: ($dur | tonumber)}}' \
+    jq --arg mb_per_sec "$mb_per_sec" --arg dur "$duration_min" \
+        '. + {config: {mb_per_sec: ($mb_per_sec | tonumber), duration_minutes: ($dur | tonumber)}}' \
         "$raw_output" > "$tmp_file" && mv "$tmp_file" "$raw_output"
     
     # Cleanup generators (unless --keep-generators)

@@ -2,7 +2,11 @@
 """
 generate-charts.py - Generate performance test charts
 
-Usage: ./generate-charts.py <results_dir>
+Usage: ./generate-charts.py <results_dir> [timestamp]
+
+Arguments:
+  results_dir  Directory containing raw test results
+  timestamp    Optional timestamp for output filenames (format: YYYYMMDD-HHMMSS)
 
 Generates:
 - Static PNG charts using matplotlib (for reports/documentation)
@@ -114,9 +118,15 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
     """Convert test results to a pandas DataFrame."""
     rows = []
     for r in results:
+        # Get bytes_per_second from metrics (actual measured value)
+        bytes_per_sec = r.get('metrics', {}).get('throughput', {}).get('bytes_per_second', 0)
+        mb_per_sec_actual = bytes_per_sec / (1024 * 1024) if bytes_per_sec else 0
+        
         row = {
             'load_name': r.get('load_name', 'unknown'),
-            'tps': r.get('config', {}).get('tps', 0),
+            'mb_per_sec': r.get('config', {}).get('mb_per_sec', 0),  # Target rate from config
+            'mb_per_sec_actual': mb_per_sec_actual,  # Actual measured rate
+            'bytes_per_sec': bytes_per_sec,
             'p50_ms': r.get('metrics', {}).get('query_latencies', {}).get('p50_seconds', 0) * 1000,
             'p90_ms': r.get('metrics', {}).get('query_latencies', {}).get('p90_seconds', 0) * 1000,
             'p99_ms': r.get('metrics', {}).get('query_latencies', {}).get('p99_seconds', 0) * 1000,
@@ -129,8 +139,8 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
         rows.append(row)
 
     df = pd.DataFrame(rows)
-    # Sort by TPS for consistent ordering
-    df = df.sort_values('tps').reset_index(drop=True)
+    # Sort by MB/s for consistent ordering
+    df = df.sort_values('mb_per_sec').reset_index(drop=True)
     return df
 
 
@@ -193,7 +203,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
 # Static Chart Generation (matplotlib)
 # =============================================================================
 
-def create_latency_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_latency_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create latency comparison bar chart."""
     fig, ax = plt.subplots(figsize=(12, 7))
 
@@ -211,7 +221,7 @@ def create_latency_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -
     ax.set_ylabel('Latency (ms)', fontsize=12, fontweight='bold')
     ax.set_title(f'{report_name}\nQuery Latency by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
     ax.legend(loc='upper left', framealpha=0.9)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
 
@@ -226,13 +236,13 @@ def create_latency_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -
                             ha='center', va='bottom', fontsize=8, color=COLORS['text'])
 
     plt.tight_layout()
-    output_path = output_dir / 'latency_comparison.png'
+    output_path = output_dir / f'report-{timestamp}-latency_comparison.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create resource usage dual-axis chart."""
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
@@ -255,7 +265,7 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str)
 
     ax1.set_title(f'{report_name}\nResource Usage by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
-    ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax1.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
 
     # Combined legend
     lines1, labels1 = ax1.get_legend_handles_labels()
@@ -265,57 +275,49 @@ def create_resources_chart(df: pd.DataFrame, output_dir: Path, report_name: str)
     ax1.grid(axis='y', linestyle='--', alpha=0.5)
 
     plt.tight_layout()
-    output_path = output_dir / 'resource_usage.png'
+    output_path = output_dir / f'report-{timestamp}-resource_usage.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_throughput_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
-    """Create throughput analysis chart with efficiency calculation."""
+def create_throughput_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create throughput analysis chart showing spans/sec by load level."""
     fig, ax = plt.subplots(figsize=(12, 7))
 
     x = range(len(df))
-    width = 0.35
+    width = 0.6
 
-    # Expected spans (TPS * nspans, assuming 50 spans per trace as default)
-    nspans_per_trace = 50
-    df['expected_spans'] = df['tps'] * nspans_per_trace
-
-    bars1 = ax.bar([i - width/2 for i in x], df['expected_spans'], width,
-                   label='Expected Spans/sec', color=COLORS['quaternary'],
-                   edgecolor='white', linewidth=0.5, alpha=0.7)
-    bars2 = ax.bar([i + width/2 for i in x], df['spans_per_sec'], width,
-                   label='Actual Spans/sec', color=COLORS['success'],
-                   edgecolor='white', linewidth=0.5)
+    bars = ax.bar(x, df['spans_per_sec'], width,
+                  label='Actual Spans/sec', color=COLORS['success'],
+                  edgecolor='white', linewidth=0.5)
 
     ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
     ax.set_ylabel('Spans per Second', fontsize=12, fontweight='bold')
-    ax.set_title(f'{report_name}\nThroughput: Expected vs Actual', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title(f'{report_name}\nThroughput (Spans/sec) by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
     ax.legend(loc='upper left', framealpha=0.9)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # Add efficiency percentage
-    for i, (_, row) in enumerate(df.iterrows()):
-        if row['expected_spans'] > 0:
-            efficiency = (row['spans_per_sec'] / row['expected_spans']) * 100
-            ax.annotate(f'{efficiency:.0f}%',
-                        xy=(i, max(row['expected_spans'], row['spans_per_sec'])),
-                        xytext=(0, 10), textcoords="offset points",
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        if height > 0:
+            ax.annotate(f'{height:.0f}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 5), textcoords="offset points",
                         ha='center', va='bottom', fontsize=10,
-                        color=COLORS['success'] if efficiency >= 90 else COLORS['warning'],
-                        fontweight='bold')
+                        color=COLORS['text'], fontweight='bold')
 
     plt.tight_layout()
-    output_path = output_dir / 'throughput_analysis.png'
+    output_path = output_dir / f'report-{timestamp}-throughput_analysis.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create error rates chart."""
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
@@ -340,7 +342,7 @@ def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> 
 
     ax1.set_title(f'{report_name}\nError Metrics by Load Level', fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
-    ax1.set_xticklabels([f"{row['load_name']}\n({row['tps']} TPS)" for _, row in df.iterrows()])
+    ax1.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
 
     # Combined legend
     lines1, labels1 = ax1.get_legend_handles_labels()
@@ -350,22 +352,77 @@ def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str) -> 
     ax1.grid(axis='y', linestyle='--', alpha=0.5)
 
     plt.tight_layout()
-    output_path = output_dir / 'error_metrics.png'
+    output_path = output_dir / f'report-{timestamp}-error_metrics.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_bytes_ingested_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create bytes ingested comparison bar chart showing target vs actual MB/s."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.35
+
+    bars1 = ax.bar([i - width/2 for i in x], df['mb_per_sec'], width,
+                   label='Target MB/s', color=COLORS['quaternary'],
+                   edgecolor='white', linewidth=0.5, alpha=0.7)
+    bars2 = ax.bar([i + width/2 for i in x], df['mb_per_sec_actual'], width,
+                   label='Actual MB/s', color=COLORS['primary'],
+                   edgecolor='white', linewidth=0.5)
+
+    ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Ingestion Rate (MB/s)', fontsize=12, fontweight='bold')
+    ax.set_title(f'{report_name}\nBytes Ingested: Target vs Actual', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
+    ax.legend(loc='upper left', framealpha=0.9)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Add efficiency percentage and value labels
+    for i, (_, row) in enumerate(df.iterrows()):
+        # Add value label on target bar
+        ax.annotate(f'{row["mb_per_sec"]:.1f}',
+                    xy=(i - width/2, row['mb_per_sec']),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha='center', va='bottom', fontsize=9, color=COLORS['text'])
+        
+        # Add value label on actual bar
+        ax.annotate(f'{row["mb_per_sec_actual"]:.2f}',
+                    xy=(i + width/2, row['mb_per_sec_actual']),
+                    xytext=(0, 3), textcoords="offset points",
+                    ha='center', va='bottom', fontsize=9, color=COLORS['text'])
+        
+        # Add efficiency percentage above
+        if row['mb_per_sec'] > 0:
+            efficiency = (row['mb_per_sec_actual'] / row['mb_per_sec']) * 100
+            max_val = max(row['mb_per_sec'], row['mb_per_sec_actual'])
+            ax.annotate(f'{efficiency:.0f}%',
+                        xy=(i, max_val),
+                        xytext=(0, 15), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=10,
+                        color=COLORS['success'] if efficiency >= 90 else COLORS['warning'],
+                        fontweight='bold')
+
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-bytes_ingested.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all static PNG charts."""
     print("\n📊 Generating static charts (PNG)...")
     charts_dir = output_dir / 'charts'
     charts_dir.mkdir(parents=True, exist_ok=True)
 
-    create_latency_chart(df, charts_dir, report_name)
-    create_resources_chart(df, charts_dir, report_name)
-    create_throughput_chart(df, charts_dir, report_name)
-    create_error_chart(df, charts_dir, report_name)
+    create_latency_chart(df, charts_dir, report_name, timestamp)
+    create_resources_chart(df, charts_dir, report_name, timestamp)
+    create_throughput_chart(df, charts_dir, report_name, timestamp)
+    create_error_chart(df, charts_dir, report_name, timestamp)
+    create_bytes_ingested_chart(df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -376,7 +433,7 @@ LOAD_COLORS = [COLORS['primary'], COLORS['secondary'], COLORS['tertiary'],
                COLORS['quaternary'], COLORS['accent'], COLORS['success']]
 
 
-def create_timeseries_latency_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_timeseries_latency_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create time-series latency chart showing P50/P90/P99 over time."""
     if ts_df.empty:
         return
@@ -405,13 +462,13 @@ def create_timeseries_latency_chart(ts_df: pd.DataFrame, output_dir: Path, repor
     axes[-1].set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
     
     plt.tight_layout()
-    output_path = output_dir / 'timeseries_latency.png'
+    output_path = output_dir / f'report-{timestamp}-timeseries_latency.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create time-series resource usage chart showing CPU and memory over time."""
     if ts_df.empty:
         return
@@ -446,14 +503,14 @@ def create_timeseries_resources_chart(ts_df: pd.DataFrame, output_dir: Path, rep
     ax2.grid(True, linestyle='--', alpha=0.7)
     
     plt.tight_layout()
-    output_path = output_dir / 'timeseries_resources.png'
+    output_path = output_dir / f'report-{timestamp}-timeseries_resources.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_timeseries_throughput_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
-    """Create time-series throughput chart showing spans/sec over time."""
+def create_timeseries_throughput_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create time-series throughput chart showing spans/sec and MB/s over time."""
     if ts_df.empty:
         return
     
@@ -461,40 +518,40 @@ def create_timeseries_throughput_chart(ts_df: pd.DataFrame, output_dir: Path, re
     
     loads = ts_df['load_name'].unique()
     
-    # Spans/sec chart
+    # MB/sec chart (primary - bytes ingested is now the main metric)
     for i, load in enumerate(loads):
         load_data = ts_df[ts_df['load_name'] == load]
-        ax1.plot(load_data['minute'], load_data['spans_per_sec'], 
+        # Convert to MB/sec for readability
+        ax1.plot(load_data['minute'], load_data['bytes_per_sec'] / (1024 * 1024), 
                 label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
                 linewidth=2, marker='o', markersize=3)
     
-    ax1.set_ylabel('Spans/sec', fontsize=11, fontweight='bold')
-    ax1.set_title(f'{report_name}\nThroughput (Spans/sec) Over Time', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('MB/sec', fontsize=11, fontweight='bold')
+    ax1.set_title(f'{report_name}\nBytes Ingested (MB/sec) Over Time', fontsize=12, fontweight='bold')
     ax1.legend(loc='upper right', framealpha=0.9)
     ax1.grid(True, linestyle='--', alpha=0.7)
     
-    # Bytes/sec chart
+    # Spans/sec chart
     for i, load in enumerate(loads):
         load_data = ts_df[ts_df['load_name'] == load]
-        # Convert to KB/sec for readability
-        ax2.plot(load_data['minute'], load_data['bytes_per_sec'] / 1024, 
+        ax2.plot(load_data['minute'], load_data['spans_per_sec'], 
                 label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
                 linewidth=2, marker='o', markersize=3)
     
-    ax2.set_ylabel('KB/sec', fontsize=11, fontweight='bold')
-    ax2.set_title('Throughput (KB/sec) Over Time', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Spans/sec', fontsize=11, fontweight='bold')
+    ax2.set_title('Throughput (Spans/sec) Over Time', fontsize=12, fontweight='bold')
     ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
     ax2.legend(loc='upper right', framealpha=0.9)
     ax2.grid(True, linestyle='--', alpha=0.7)
     
     plt.tight_layout()
-    output_path = output_dir / 'timeseries_throughput.png'
+    output_path = output_dir / f'report-{timestamp}-timeseries_throughput.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Create time-series error metrics chart."""
     if ts_df.empty:
         return
@@ -529,13 +586,13 @@ def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report
     ax2.grid(True, linestyle='--', alpha=0.7)
     
     plt.tight_layout()
-    output_path = output_dir / 'timeseries_errors.png'
+    output_path = output_dir / f'report-{timestamp}-timeseries_errors.png'
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Created: {output_path}")
 
 
-def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
+def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all time-series PNG charts."""
     if ts_df.empty:
         print("\n⚠️  No time-series data found, skipping time-series charts")
@@ -545,10 +602,10 @@ def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_nam
     charts_dir = output_dir / 'charts'
     charts_dir.mkdir(parents=True, exist_ok=True)
     
-    create_timeseries_latency_chart(ts_df, charts_dir, report_name)
-    create_timeseries_resources_chart(ts_df, charts_dir, report_name)
-    create_timeseries_throughput_chart(ts_df, charts_dir, report_name)
-    create_timeseries_errors_chart(ts_df, charts_dir, report_name)
+    create_timeseries_latency_chart(ts_df, charts_dir, report_name, timestamp)
+    create_timeseries_resources_chart(ts_df, charts_dir, report_name, timestamp)
+    create_timeseries_throughput_chart(ts_df, charts_dir, report_name, timestamp)
+    create_timeseries_errors_chart(ts_df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -565,14 +622,14 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
         subplot_titles=(
             'Query Latency by Load Level',
             'Resource Usage by Load Level',
-            'Throughput: Expected vs Actual',
+            'Bytes Ingested: Target vs Actual',
             'Error Metrics by Load Level'
         ),
         vertical_spacing=0.12,
         horizontal_spacing=0.1
     )
 
-    load_labels = [f"{row['load_name']}<br>({row['tps']} TPS)" for _, row in df.iterrows()]
+    load_labels = [f"{row['load_name']}<br>({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()]
 
     # 1. Latency Chart (top-left)
     fig.add_trace(go.Bar(
@@ -603,18 +660,16 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
         textposition='outside', textfont=dict(size=10)
     ), row=1, col=2)
 
-    # 3. Throughput Chart (bottom-left)
-    nspans_per_trace = 50
-    expected_spans = df['tps'] * nspans_per_trace
+    # 3. Bytes Ingested Chart (bottom-left)
     fig.add_trace(go.Bar(
-        name='Expected Spans/sec', x=load_labels, y=expected_spans,
+        name='Target MB/s', x=load_labels, y=df['mb_per_sec'],
         marker_color=COLORS['quaternary'], opacity=0.7
     ), row=2, col=1)
     fig.add_trace(go.Bar(
-        name='Actual Spans/sec', x=load_labels, y=df['spans_per_sec'],
-        marker_color=COLORS['success'],
-        text=[f"{(actual/expected*100):.0f}%" if expected > 0 else "N/A"
-              for actual, expected in zip(df['spans_per_sec'], expected_spans)],
+        name='Actual MB/s', x=load_labels, y=df['mb_per_sec_actual'],
+        marker_color=COLORS['primary'],
+        text=[f"{(actual/target*100):.0f}%" if target > 0 else "N/A"
+              for actual, target in zip(df['mb_per_sec_actual'], df['mb_per_sec'])],
         textposition='outside', textfont=dict(size=10)
     ), row=2, col=1)
 
@@ -671,7 +726,7 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
     # Add axis labels
     fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
     fig.update_yaxes(title_text="Value", row=1, col=2)
-    fig.update_yaxes(title_text="Spans/sec", row=2, col=1)
+    fig.update_yaxes(title_text="MB/sec", row=2, col=1)
     fig.update_yaxes(title_text="Value", row=2, col=2)
 
     # Save dashboard
@@ -705,7 +760,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
         subplot_titles=(
             'Query Latency Over Time (P50, P90, P99)',
             'Resource Usage Over Time (CPU & Memory)',
-            'Throughput Over Time (Spans/sec)',
+            'Bytes Ingested Over Time (MB/sec)',
             'Error Metrics Over Time'
         ),
         vertical_spacing=0.08,
@@ -765,14 +820,17 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
             legendgroup=f'{load}_res', showlegend=False,
         ), row=2, col=1, secondary_y=True)
     
-    # Row 3: Throughput
+    # Row 3: Bytes Ingested (MB/sec)
     for i, load in enumerate(loads):
         load_data = ts_df[ts_df['load_name'] == load]
         color = LOAD_COLORS[i % len(LOAD_COLORS)]
         
+        # Convert bytes_per_sec to MB/sec
+        mb_per_sec = load_data['bytes_per_sec'] / (1024 * 1024)
+        
         fig.add_trace(go.Scatter(
-            x=load_data['minute'], y=load_data['spans_per_sec'],
-            name=f'{load} Spans/sec', mode='lines+markers',
+            x=load_data['minute'], y=mb_per_sec,
+            name=f'{load} MB/sec', mode='lines+markers',
             line=dict(color=color, width=2),
             marker=dict(size=4),
             fill='tozeroy', fillcolor=f'rgba{tuple(list(bytes.fromhex(color[1:])) + [0.1])}',
@@ -842,7 +900,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     fig.update_yaxes(title_text="Latency (ms)", row=1, col=1)
     fig.update_yaxes(title_text="CPU (cores)", row=2, col=1, secondary_y=False)
     fig.update_yaxes(title_text="Memory (GB)", row=2, col=1, secondary_y=True)
-    fig.update_yaxes(title_text="Spans/sec", row=3, col=1)
+    fig.update_yaxes(title_text="MB/sec", row=3, col=1)
     fig.update_yaxes(title_text="Failures/sec", row=4, col=1, secondary_y=False)
     fig.update_yaxes(title_text="Dropped/sec", row=4, col=1, secondary_y=True)
     
@@ -869,9 +927,11 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
     """Generate an HTML summary table of results."""
     print("\n📋 Generating summary table...")
 
-    nspans_per_trace = 50
-    df['expected_spans'] = df['tps'] * nspans_per_trace
-    df['efficiency'] = (df['spans_per_sec'] / df['expected_spans'] * 100).round(1)
+    # Calculate efficiency based on target vs actual MB/s
+    df['efficiency'] = df.apply(
+        lambda row: (row['mb_per_sec_actual'] / row['mb_per_sec'] * 100) if row['mb_per_sec'] > 0 else 0,
+        axis=1
+    ).round(1)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -900,7 +960,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
             font-size: 1.1em;
         }}
         .container {{
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }}
         table {{
@@ -944,7 +1004,8 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
             <thead>
                 <tr>
                     <th>Load</th>
-                    <th>TPS</th>
+                    <th>Target (MB/s)</th>
+                    <th>Actual (MB/s)</th>
                     <th>P50 (ms)</th>
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
@@ -964,7 +1025,8 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
 
         html_content += f"""                <tr>
                     <td><strong>{row['load_name']}</strong></td>
-                    <td>{row['tps']}</td>
+                    <td>{row['mb_per_sec']:.1f}</td>
+                    <td>{row['mb_per_sec_actual']:.2f}</td>
                     <td>{row['p50_ms']:.1f}</td>
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
@@ -996,12 +1058,18 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: ./generate-charts.py <results_dir>")
+        print("Usage: ./generate-charts.py <results_dir> [timestamp]")
         print("")
-        print("Example: ./generate-charts.py perf-tests/results")
+        print("Example: ./generate-charts.py perf-tests/results 20251126-123954")
         sys.exit(1)
 
     results_dir = Path(sys.argv[1])
+    
+    # Get timestamp from argument or generate one
+    if len(sys.argv) >= 3:
+        timestamp = sys.argv[2]
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     if not results_dir.exists():
         print(f"Error: Results directory not found: {results_dir}")
@@ -1032,8 +1100,8 @@ def main():
         print("No time-series data found (legacy format)")
 
     # Generate outputs
-    generate_static_charts(df, results_dir, report_name)
-    generate_timeseries_charts(ts_df, results_dir, report_name)
+    generate_static_charts(df, results_dir, report_name, timestamp)
+    generate_timeseries_charts(ts_df, results_dir, report_name, timestamp)
     generate_interactive_dashboard(df, results_dir, report_name)
     generate_timeseries_dashboard(ts_df, results_dir, report_name)
     generate_summary_table(df, results_dir, report_name)
@@ -1042,8 +1110,8 @@ def main():
     print("  Chart generation complete!")
     print("=" * 60)
     print(f"\nOutputs:")
-    print(f"  📊 Static charts:          {results_dir}/charts/")
-    print(f"  📈 Time-series charts:     {results_dir}/charts/timeseries_*.png")
+    print(f"  📊 Static charts:          {results_dir}/charts/report-{timestamp}-*.png")
+    print(f"  📈 Time-series charts:     {results_dir}/charts/report-{timestamp}-timeseries_*.png")
     print(f"  🌐 Summary Dashboard:      {results_dir}/dashboard.html")
     print(f"  🌐 Time-Series Dashboard:  {results_dir}/timeseries-dashboard.html")
     print(f"  📋 Summary Table:          {results_dir}/summary.html")

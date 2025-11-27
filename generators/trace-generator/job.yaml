@@ -3,21 +3,28 @@ kind: Job
 metadata:
   name: generate-traces
   namespace: tempo-perf-test
+  labels:
+    app: trace-generator
 spec:
-  completions: 3
-  parallelism: 3
+  completions: 2
+  parallelism: 2
+  ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      labels:
+        app: trace-generator
     spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       containers:
-        - name: loadgen
+        # Frontend service - lightweight traces (30% of TPS)
+        - name: frontend
           image: ghcr.io/honeycombio/loadgen/loadgen:latest
           args:
-            - --dataset=loadtest
-            - --tps=150
-            - --depth=10
-            - --nspans=50
+            - --dataset=frontend
+            - --tps=45
+            - --depth=3
+            - --nspans=8
             - --runtime=30m
             - --ramptime=1s
             - --tracecount=0
@@ -25,6 +32,101 @@ spec:
             - --sender=otel
             - --host=tempo-simplest:4317
             - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        # API Gateway - medium complexity (25% of TPS)
+        - name: api-gateway
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=api-gateway
+            - --tps=37
+            - --depth=5
+            - --nspans=15
+            - --runtime=30m
+            - --ramptime=1s
+            - --tracecount=0
+            - --protocol=grpc
+            - --sender=otel
+            - --host=tempo-simplest:4317
+            - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        # Order Service - complex traces (20% of TPS)
+        - name: order-service
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=order-service
+            - --tps=30
+            - --depth=8
+            - --nspans=35
+            - --runtime=30m
+            - --ramptime=1s
+            - --tracecount=0
+            - --protocol=grpc
+            - --sender=otel
+            - --host=tempo-simplest:4317
+            - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        # Payment Service - critical path (10% of TPS)
+        - name: payment-service
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=payment-service
+            - --tps=15
+            - --depth=4
+            - --nspans=12
+            - --runtime=30m
+            - --ramptime=1s
+            - --tracecount=0
+            - --protocol=grpc
+            - --sender=otel
+            - --host=tempo-simplest:4317
+            - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+        # Inventory Service - medium complexity (15% of TPS)
+        - name: inventory-service
+          image: ghcr.io/honeycombio/loadgen/loadgen:latest
+          args:
+            - --dataset=inventory-service
+            - --tps=23
+            - --depth=6
+            - --nspans=25
+            - --runtime=30m
+            - --ramptime=1s
+            - --tracecount=0
+            - --protocol=grpc
+            - --sender=otel
+            - --host=tempo-simplest:4317
+            - --insecure
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
       restartPolicy: Never
   backoffLimit: 4
 

@@ -19,34 +19,87 @@ timeBuckets:
     weight: 60
 
 queries:
-  - name: "loadtest_limit20"
-    path: "/api/search?limit=20&maxDuration&minDuration&service=loadtest"
-  - name: "loadtest_limit30"
-    path: "/api/search?limit=30&maxDuration&minDuration&service=loadtest"
-  - name: "loadtest_limit50"
-    path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest"
-  - name: "loadtest_one_tag"
-    path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest&tags=http.url=\"http://spanFiller3/3\""
-  - name: "loadtest_slow_traces"
-    path: "/api/search?minDuration=500ms&limit=30&service=loadtest"
-  - name: "loadtest_very_slow"
-    path: "/api/search?minDuration=1s&limit=20&service=loadtest"
-  - name: "loadtest_fast_traces"
-    path: "/api/search?maxDuration=100ms&limit=40&service=loadtest"
-  - name: "loadtest_medium_duration"
-    path: "/api/search?minDuration=200ms&maxDuration=800ms&limit=25&service=loadtest"
-  - name: "loadtest_http_method"
-    path: "/api/search?limit=30&service=loadtest&tags=http.method=POST"
-  - name: "loadtest_multi_tag"
-    path: "/api/search?limit=20&service=loadtest&tags=http.method=GET"
-  - name: "loadtest_large_limit"
-    path: "/api/search?limit=100&service=loadtest"
-  - name: "loadtest_small_limit"
-    path: "/api/search?limit=10&service=loadtest"
-  - name: "loadtest_span_name"
-    path: "/api/search?limit=25&service=loadtest"
-  - name: "loadtest_duration_range"
-    path: "/api/search?minDuration=300ms&maxDuration=700ms&limit=35&service=loadtest"
-  - name: "loadtest_limit15"
-    path: "/api/search?limit=15&service=loadtest"
+  # ============================================
+  # Frontend Service Queries (lightweight traces)
+  # ============================================
+  - name: "frontend_limit20"
+    path: "/api/search?limit=20&service=frontend"
+  - name: "frontend_fast_traces"
+    path: "/api/search?maxDuration=50ms&limit=30&service=frontend"
+  - name: "frontend_slow_traces"
+    path: "/api/search?minDuration=100ms&limit=20&service=frontend"
+  - name: "frontend_http_get"
+    path: "/api/search?limit=25&service=frontend&tags=http.method=GET"
+
+  # ============================================
+  # API Gateway Service Queries (medium complexity)
+  # ============================================
+  - name: "api_gateway_limit30"
+    path: "/api/search?limit=30&service=api-gateway"
+  - name: "api_gateway_limit50"
+    path: "/api/search?limit=50&service=api-gateway"
+  - name: "api_gateway_slow"
+    path: "/api/search?minDuration=200ms&limit=25&service=api-gateway"
+  - name: "api_gateway_duration_range"
+    path: "/api/search?minDuration=100ms&maxDuration=500ms&limit=35&service=api-gateway"
+  - name: "api_gateway_http_post"
+    path: "/api/search?limit=20&service=api-gateway&tags=http.method=POST"
+
+  # ============================================
+  # Order Service Queries (complex traces)
+  # ============================================
+  - name: "order_service_limit20"
+    path: "/api/search?limit=20&service=order-service"
+  - name: "order_service_limit40"
+    path: "/api/search?limit=40&service=order-service"
+  - name: "order_service_slow"
+    path: "/api/search?minDuration=500ms&limit=30&service=order-service"
+  - name: "order_service_very_slow"
+    path: "/api/search?minDuration=1s&limit=15&service=order-service"
+  - name: "order_service_duration_range"
+    path: "/api/search?minDuration=300ms&maxDuration=800ms&limit=25&service=order-service"
+  - name: "order_service_http_method"
+    path: "/api/search?limit=30&service=order-service&tags=http.method=POST"
+
+  # ============================================
+  # Payment Service Queries (critical path)
+  # ============================================
+  - name: "payment_service_limit25"
+    path: "/api/search?limit=25&service=payment-service"
+  - name: "payment_service_fast"
+    path: "/api/search?maxDuration=100ms&limit=30&service=payment-service"
+  - name: "payment_service_slow"
+    path: "/api/search?minDuration=300ms&limit=20&service=payment-service"
+  - name: "payment_service_http_post"
+    path: "/api/search?limit=20&service=payment-service&tags=http.method=POST"
+
+  # ============================================
+  # Inventory Service Queries (medium complexity)
+  # ============================================
+  - name: "inventory_service_limit30"
+    path: "/api/search?limit=30&service=inventory-service"
+  - name: "inventory_service_limit50"
+    path: "/api/search?limit=50&service=inventory-service"
+  - name: "inventory_service_slow"
+    path: "/api/search?minDuration=400ms&limit=25&service=inventory-service"
+  - name: "inventory_service_duration_range"
+    path: "/api/search?minDuration=200ms&maxDuration=600ms&limit=30&service=inventory-service"
+
+  # ============================================
+  # Cross-Service / Mixed Queries
+  # ============================================
+  - name: "all_services_limit100"
+    path: "/api/search?limit=100"
+  - name: "all_services_slow"
+    path: "/api/search?minDuration=500ms&limit=50"
+  - name: "all_services_very_slow"
+    path: "/api/search?minDuration=1s&limit=30"
+  - name: "all_services_fast"
+    path: "/api/search?maxDuration=50ms&limit=50"
+  - name: "all_http_post"
+    path: "/api/search?limit=40&tags=http.method=POST"
+  - name: "all_http_get"
+    path: "/api/search?limit=40&tags=http.method=GET"
+  - name: "all_duration_range"
+    path: "/api/search?minDuration=200ms&maxDuration=700ms&limit=40"
 

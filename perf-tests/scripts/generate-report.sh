@@ -364,7 +364,7 @@ generate_charts() {
     fi
     
     log_info "Generating charts..."
-    if "${SCRIPT_DIR}/generate-charts.py" "$results_dir"; then
+    if "${SCRIPT_DIR}/generate-charts.py" "$results_dir" "$timestamp"; then
         log_info "Charts generated successfully!"
     else
         log_warn "Chart generation failed, but reports are still available."

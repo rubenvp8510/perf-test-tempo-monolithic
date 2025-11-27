@@ -19,27 +19,7 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       containers:
-        - name: loadgen
-          image: ghcr.io/honeycombio/loadgen/loadgen:latest
-          args:
-            - --dataset=loadtest
-            - --tps={{TPS}}
-            - --depth={{DEPTH}}
-            - --nspans={{NSPANS}}
-            - --runtime={{RUNTIME}}
-            - --ramptime=1s
-            - --tracecount=0
-            - --protocol=grpc
-            - --sender=otel
-            - --host={{TEMPO_HOST}}:{{TEMPO_PORT}}
-            - --insecure
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
+{{CONTAINERS}}
       restartPolicy: Never
   backoffLimit: 4
 
