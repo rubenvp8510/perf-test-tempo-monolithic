@@ -72,24 +72,28 @@ loads:
     mb_per_sec: 0.7
     parallelism: 2
     tps_multiplier: 4    # Calibrated: hits ~0.75 MB/s ✓
+    queryQPS: 25         # Total queries per second across all query types
 
   - name: "medium"
     description: "Medium load - typical production"
     mb_per_sec: 2.0
     parallelism: 3
     tps_multiplier: 2.4  # Calibrated: was 1.5 hitting 1.25 MB/s, now targets 2.0 MB/s
+    queryQPS: 50         # Total queries per second across all query types
 
   - name: "high"
     description: "High load - stress test"
     mb_per_sec: 4.0
     parallelism: 4
     tps_multiplier: 1.8  # Calibrated: was 1.2 hitting 2.67 MB/s, now targets 4.0 MB/s
+    queryQPS: 75         # Total queries per second across all query types
 
   - name: "very-high"
     description: "Very high load - peak capacity test"
     mb_per_sec: 7.0
     parallelism: 5
     tps_multiplier: 1.45 # Calibrated: was 1 hitting 4.85 MB/s, now targets 7.0 MB/s
+    queryQPS: 75        # Total queries per second across all query types
 
 # Query generator configuration
 queryGenerator:

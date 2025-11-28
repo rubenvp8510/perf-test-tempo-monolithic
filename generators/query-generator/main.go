@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,8 +67,9 @@ type Config struct {
 	Namespace string `yaml:"namespace"`
 	TenantID  string `yaml:"tenantId"`
 	Query     struct {
-		Delay             string `yaml:"delay"`
-		ConcurrentQueries int    `yaml:"concurrentQueries"`
+		Delay             string  `yaml:"delay"`
+		ConcurrentQueries int     `yaml:"concurrentQueries"`
+		TargetQPS         float64 `yaml:"targetQPS"`
 	} `yaml:"query"`
 	TimeBuckets []struct {
 		Name     string `yaml:"name"`
@@ -257,7 +260,7 @@ func main() {
 	// Initialize metrics ONCE with the configured namespace
 	initMetrics(config.Namespace)
 
-	// Parse query delay
+	// Parse query delay (kept for backward compatibility, but not used if targetQPS is set)
 	queryDelay, err := time.ParseDuration(config.Query.Delay)
 	if err != nil {
 		log.Fatalf("Could not parse query delay: %v", err)
@@ -269,6 +272,13 @@ func main() {
 		log.Fatalf("CONCURRENT_QUERIES must be >= 1, got: %d", concurrentQueries)
 	}
 	log.Printf("Concurrent queries per executor: %d", concurrentQueries)
+
+	// Validate and calculate QPS
+	targetQPS := config.Query.TargetQPS
+	if targetQPS <= 0 {
+		log.Fatalf("targetQPS must be > 0, got: %f", targetQPS)
+	}
+	log.Printf("Target total QPS: %.2f", targetQPS)
 
 	// Convert time buckets
 	timeBuckets, err := convertTimeBuckets(config.TimeBuckets)
@@ -282,6 +292,10 @@ func main() {
 		log.Fatalf("No queries defined in configuration")
 	}
 	log.Printf("Loaded %d queries from configuration", len(config.Queries))
+
+	// Calculate per-query QPS: total QPS divided by number of query types
+	perQueryQPS := targetQPS / float64(len(config.Queries))
+	log.Printf("Per-query QPS: %.4f (distributed across %d concurrent workers)", perQueryQPS, concurrentQueries)
 
 	// Seed random number generator
 	rand.Seed(time.Now().UnixNano())
@@ -297,6 +311,7 @@ func main() {
 			timeBuckets:   timeBuckets,
 			concurrency:   concurrentQueries,
 			tenantID:      config.TenantID,
+			targetQPS:     perQueryQPS,
 		}
 		if err := qs.run(); err != nil {
 			log.Fatalf("Could not run query executor: %v", err)
@@ -316,6 +331,7 @@ type queryExecutor struct {
 	timeBuckets   []timeBucket
 	concurrency   int
 	tenantID      string
+	targetQPS     float64
 }
 
 func (queryExecutor queryExecutor) run() error {
@@ -341,19 +357,32 @@ func (queryExecutor queryExecutor) run() error {
 	// Use global metrics with this executor's query name as label
 	queryName := queryExecutor.name
 
-	log.Printf("Starting query executor for: %s (concurrency: %d)\n", queryExecutor.name, queryExecutor.concurrency)
+	log.Printf("Starting query executor for: %s (concurrency: %d, target QPS: %.4f)\n", queryExecutor.name, queryExecutor.concurrency, queryExecutor.targetQPS)
 
 	// Track when this executor started for time-aware bucket selection
 	testStartTime := time.Now()
 
-	// Launch N independent tickers for concurrent execution
+	// Create a shared rate limiter for all workers of this query type
+	// The limiter ensures total QPS for this query type equals targetQPS
+	limiter := rate.NewLimiter(rate.Limit(queryExecutor.targetQPS), 1)
+	ctx := context.Background()
+
+	// Launch N independent workers for concurrent execution
 	for i := 0; i < queryExecutor.concurrency; i++ {
 		workerID := i + 1
-		// Each ticker starts with a random initial delay to spread the load
-		ticker := time.NewTicker(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
+		// Each worker starts with a small random initial delay to spread the load
+		initialDelay := time.Duration(rand.Int63n(int64(time.Second)))
 
 		go func(id int) {
-			for range ticker.C {
+			// Initial delay to spread workers
+			time.Sleep(initialDelay)
+
+			for {
+				// Wait for rate limiter permission (blocks until allowed)
+				if err := limiter.Wait(ctx); err != nil {
+					log.Printf("[worker-%d] Rate limiter error: %v", id, err)
+					return
+				}
 				// Select a time bucket for this query (only from eligible buckets based on elapsed time)
 				bucket := selectTimeBucket(queryExecutor.timeBuckets, testStartTime)
 
@@ -389,7 +418,6 @@ func (queryExecutor queryExecutor) run() error {
 					log.Printf("[worker-%d] error creating http request: %v", id, err)
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
 					bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
-					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
 
@@ -419,7 +447,6 @@ func (queryExecutor queryExecutor) run() error {
 					log.Printf("[worker-%d] Full request details:\n%s", id, formatRequest(req))
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
 					bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
-					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
 
@@ -485,9 +512,7 @@ func (queryExecutor queryExecutor) run() error {
 							id, bucketName, queryExecutor.name, queryDuration, res.StatusCode, spansCount)
 					}
 				}
-
-				// Reset ticker with random delay
-				ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
+				// Rate limiter will control the next iteration
 			}
 		}(workerID)
 	}

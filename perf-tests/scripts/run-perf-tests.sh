@@ -433,6 +433,55 @@ generate_trace_job() {
 }
 
 #
+# Generate query generator ConfigMap with load-specific QPS
+#
+generate_query_configmap() {
+    local load_name="$1"
+    local query_qps="$2"
+    
+    local namespace tempo_host tenant_id delay concurrent_queries
+    namespace=$(yq eval '.namespace' "$CONFIG_FILE")
+    tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
+    tenant_id=$(yq eval '.tenants[0].id' "$CONFIG_FILE")
+    delay=$(yq eval '.queryGenerator.delay // "5s"' "$CONFIG_FILE")
+    concurrent_queries=$(yq eval '.queryGenerator.concurrentQueries // 1' "$CONFIG_FILE")
+    
+    # Read the base query generator config
+    local base_config="${PROJECT_ROOT}/generators/query-generator/config.yaml"
+    
+    # Create a temporary file with updated QPS
+    local tmp_config
+    tmp_config=$(mktemp)
+    
+    # Copy base config and update targetQPS and other dynamic values
+    cp "$base_config" "$tmp_config"
+    yq eval ".query.targetQPS = $query_qps" -i "$tmp_config"
+    yq eval ".query.delay = \"$delay\"" -i "$tmp_config"
+    yq eval ".query.concurrentQueries = $concurrent_queries" -i "$tmp_config"
+    yq eval ".tempo.queryEndpoint = \"https://${tempo_host}-gateway:8080\"" -i "$tmp_config"
+    yq eval ".namespace = \"$namespace\"" -i "$tmp_config"
+    yq eval ".tenantId = \"$tenant_id\"" -i "$tmp_config"
+    
+    # Generate ConfigMap YAML with properly indented config
+    # Read the config file and indent each line by 4 spaces for the ConfigMap
+    local indented_config
+    indented_config=$(sed 's/^/    /' "$tmp_config")
+    
+    cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: query-load-config
+  namespace: ${namespace}
+data:
+  config.yaml: |
+${indented_config}
+EOF
+    
+    rm -f "$tmp_config"
+}
+
+#
 # Deploy generators for a load
 #
 deploy_generators() {
@@ -473,7 +522,20 @@ deploy_generators() {
     log_info "Deploying multi-service trace generator..."
     generate_trace_job "$load_name" "$runtime" | oc apply -f -
     
-    # Deploy query generator
+    # Get query QPS for this load
+    local query_qps
+    query_qps=$(read_load_config "$load_name" "queryQPS")
+    if [ -z "$query_qps" ] || [ "$query_qps" = "null" ]; then
+        log_warn "queryQPS not specified for load $load_name, using default 50"
+        query_qps=50
+    fi
+    log_info "Query generator QPS: $query_qps"
+    
+    # Generate and deploy query generator ConfigMap with load-specific QPS
+    log_info "Generating query generator ConfigMap with QPS: $query_qps..."
+    generate_query_configmap "$load_name" "$query_qps" | oc apply -f -
+    
+    # Deploy query generator deployment
     log_info "Deploying query generator..."
     oc apply -f "${PROJECT_ROOT}/generators/query-generator/manifests/deployment.yaml"
     
