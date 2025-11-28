@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -62,6 +63,7 @@ type Config struct {
 		QueryEndpoint string `yaml:"queryEndpoint"`
 	} `yaml:"tempo"`
 	Namespace string `yaml:"namespace"`
+	TenantID  string `yaml:"tenantId"`
 	Query     struct {
 		Delay             string `yaml:"delay"`
 		ConcurrentQueries int    `yaml:"concurrentQueries"`
@@ -214,6 +216,29 @@ func initMetrics(namespace string) {
 	log.Printf("Metrics initialized for namespace: %s (sanitized: %s)", namespace, sanitizedNs)
 }
 
+// formatRequest formats the full HTTP request details for logging
+func formatRequest(req *http.Request) string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Method: %s\n", req.Method))
+	buf.WriteString(fmt.Sprintf("URL: %s\n", req.URL.String()))
+	buf.WriteString("Headers:\n")
+	for key, values := range req.Header {
+		for _, value := range values {
+			// Mask authorization token for security
+			if key == "Authorization" {
+				if len(value) > 20 {
+					buf.WriteString(fmt.Sprintf("  %s: Bearer %s...\n", key, value[:20]))
+				} else {
+					buf.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
+				}
+			} else {
+				buf.WriteString(fmt.Sprintf("  %s: %s\n", key, value))
+			}
+		}
+	}
+	return buf.String()
+}
+
 func main() {
 	// Get config file path from environment variable (default to /config/config.yaml)
 	configPath := os.Getenv("CONFIG_FILE")
@@ -271,6 +296,7 @@ func main() {
 			delay:         queryDelay,
 			timeBuckets:   timeBuckets,
 			concurrency:   concurrentQueries,
+			tenantID:      config.TenantID,
 		}
 		if err := qs.run(); err != nil {
 			log.Fatalf("Could not run query executor: %v", err)
@@ -289,11 +315,11 @@ type queryExecutor struct {
 	delay         time.Duration
 	timeBuckets   []timeBucket
 	concurrency   int
+	tenantID      string
 }
 
 func (queryExecutor queryExecutor) run() error {
 	tokenPath := "/var/run/secrets/kubernetes.io/serviceaccount/token"
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	token, err := os.ReadFile(tokenPath)
 	if err != nil {
@@ -302,8 +328,14 @@ func (queryExecutor queryExecutor) run() error {
 		log.Printf("ServiceAccount Token loaded")
 	}
 
+	// Create custom transport with TLS config that allows self-signed certificates
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+
 	client := http.Client{
-		Timeout: time.Minute * 15,
+		Transport: transport,
+		Timeout:   time.Minute * 15,
 	}
 
 	// Use global metrics with this executor's query name as label
@@ -324,12 +356,12 @@ func (queryExecutor queryExecutor) run() error {
 			for range ticker.C {
 				// Select a time bucket for this query (only from eligible buckets based on elapsed time)
 				bucket := selectTimeBucket(queryExecutor.timeBuckets, testStartTime)
-				
+
 				// Determine bucket name for metrics (use "immediate" if no bucket selected)
 				bucketName := "immediate"
 				var startTime, endTime time.Time
 				var startTimeStamp, endTimeStamp string
-				
+
 				if bucket == nil {
 					log.Printf("[worker-%d] No eligible time buckets yet (test running for %v), querying immediate data", id, time.Since(testStartTime))
 					// Query without time range for immediate data
@@ -350,8 +382,9 @@ func (queryExecutor queryExecutor) run() error {
 					startTimeStamp = fmt.Sprintf("%d", startTime.Unix())
 				}
 
-				// Create a new request for Tempo TraceQL search
-				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/search", queryExecutor.queryEndpoint), nil)
+				// Create a new request for Tempo TraceQL search via gateway
+				// Gateway uses Observatorium API pattern: /api/traces/v1/{tenant}/api/search
+				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/traces/v1/%s/tempo/api/search", queryExecutor.queryEndpoint, queryExecutor.tenantID), nil)
 				if err != nil {
 					log.Printf("[worker-%d] error creating http request: %v", id, err)
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
@@ -362,6 +395,11 @@ func (queryExecutor queryExecutor) run() error {
 
 				if token != nil {
 					req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", string(token)))
+				}
+
+				// Add tenant ID header for multitenancy
+				if queryExecutor.tenantID != "" {
+					req.Header.Set("X-Scope-OrgID", queryExecutor.tenantID)
 				}
 
 				queryParams := req.URL.Query()
@@ -378,6 +416,7 @@ func (queryExecutor queryExecutor) run() error {
 				res, err := client.Do(req)
 				if err != nil {
 					log.Printf("[worker-%d] error making http request: %v", id, err)
+					log.Printf("[worker-%d] Full request details:\n%s", id, formatRequest(req))
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
 					bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
 					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
@@ -391,8 +430,21 @@ func (queryExecutor queryExecutor) run() error {
 
 				if res.StatusCode >= 300 {
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
-					log.Printf("[worker-%d] Query failed [%s]: req: %v, status: %d\n", id, bucketName, req.URL.RawQuery, res.StatusCode)
+
+					// Read response body before closing
+					body, readErr := io.ReadAll(res.Body)
 					res.Body.Close()
+
+					// Log full request details
+					log.Printf("[worker-%d] Query failed [%s]: status: %d", id, bucketName, res.StatusCode)
+					log.Printf("[worker-%d] Full request details:\n%s", id, formatRequest(req))
+
+					// Log response body
+					if readErr != nil {
+						log.Printf("[worker-%d] Failed to read response body: %v", id, readErr)
+					} else {
+						log.Printf("[worker-%d] Response body:\n%s", id, string(body))
+					}
 				} else {
 					// Read and parse response to count spans
 					body, err := io.ReadAll(res.Body)

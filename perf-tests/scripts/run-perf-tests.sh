@@ -153,6 +153,12 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check OpenTelemetry Operator
+    if ! oc get crd opentelemetrycollectors.opentelemetry.io &> /dev/null; then
+        log_error "OpenTelemetry Operator is not installed. Please install it from OperatorHub."
+        exit 1
+    fi
+    
     log_info "All prerequisites met."
 }
 
@@ -397,8 +403,9 @@ generate_trace_job() {
     tps_multiplier=${tps_multiplier:-1}
     tps=$(convert_mb_to_tps "$mb_per_sec" "$tps_multiplier")
     parallelism=$(read_load_config "$load_name" "parallelism")
-    tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
-    tempo_port=$(yq eval '.tempo.grpcPort' "$CONFIG_FILE")
+    # Use OTel Collector endpoint instead of Tempo directly
+    tempo_host=$(yq eval '.otelCollector.serviceName' "$CONFIG_FILE")
+    tempo_port=$(yq eval '.otelCollector.port' "$CONFIG_FILE")
     namespace=$(yq eval '.namespace' "$CONFIG_FILE")
     
     # Generate containers YAML for all services

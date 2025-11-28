@@ -8,6 +8,12 @@ spec:
       backend: s3
       s3:
         secret: minio
+  multitenancy:
+    enabled: true
+    mode: openshift
+    authentication:
+    - tenantName: tenant-1
+      tenantId: "tenant-1"
   jaegerui:
     enabled: true
     route:

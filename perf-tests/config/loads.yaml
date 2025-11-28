@@ -9,7 +9,18 @@ testDuration: "30m"
 # Namespace where tests will run
 namespace: "tempo-perf-test"
 
-# Tempo endpoint configuration
+# Multitenancy configuration
+tenants:
+  - id: "tenant-1"
+    description: "Default tenant for performance testing"
+
+# OpenTelemetry Collector configuration
+# Trace generators send to the collector, which adds auth and tenant headers
+otelCollector:
+  serviceName: "otel-collector-collector"
+  port: 4317
+
+# Tempo endpoint configuration (for direct queries)
 tempo:
   host: "tempo-simplest"
   grpcPort: 4317

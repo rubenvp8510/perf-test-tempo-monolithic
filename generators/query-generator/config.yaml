@@ -1,7 +1,8 @@
 tempo:
-  queryEndpoint: "http://tempo-simplest:3200"
+  queryEndpoint: "https://tempo-simplest-gateway:8080"
 
 namespace: "tempo-perf-test"
+tenantId: "tenant-1"
 
 query:
   delay: "5s"

@@ -679,21 +679,201 @@ def create_timeseries_spans_returned_chart(ts_df: pd.DataFrame, output_dir: Path
     print(f"  ✅ Created: {output_path}")
 
 
-def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+def extract_per_container_data(results: list[dict[str, Any]]) -> pd.DataFrame:
+    """Extract per-container time-series data from test results into a DataFrame."""
+    rows = []
+    
+    for r in results:
+        load_name = r.get('load_name', 'unknown')
+        per_container = r.get('per_container', {})
+        
+        # Skip if no per-container data
+        if not per_container:
+            continue
+        
+        cpu_data = per_container.get('cpu_cores', [])
+        memory_data = per_container.get('memory_gb', [])
+        
+        # Create a dictionary to store data by key (load/container/pod/timestamp)
+        data_dict = {}
+        
+        # Process CPU data per container
+        for container_info in cpu_data:
+            container_name = container_info.get('container', 'unknown')
+            pod_name = container_info.get('pod', 'unknown')
+            values = container_info.get('values', [])
+            
+            for item in values:
+                ts = item.get('timestamp', 0)
+                cpu_val = item.get('value', 0)
+                key = (load_name, container_name, pod_name, ts)
+                if key not in data_dict:
+                    data_dict[key] = {
+                        'load_name': load_name,
+                        'container': container_name,
+                        'pod': pod_name,
+                        'timestamp': ts,
+                        'datetime': datetime.fromtimestamp(ts),
+                        'cpu_cores': 0,
+                        'cpu_millicores': 0,
+                        'memory_gb': 0,
+                    }
+                data_dict[key]['cpu_cores'] = cpu_val
+                data_dict[key]['cpu_millicores'] = cpu_val * 1000
+        
+        # Process memory data per container
+        for container_info in memory_data:
+            container_name = container_info.get('container', 'unknown')
+            pod_name = container_info.get('pod', 'unknown')
+            values = container_info.get('values', [])
+            
+            for item in values:
+                ts = item.get('timestamp', 0)
+                mem_val = item.get('value', 0)
+                key = (load_name, container_name, pod_name, ts)
+                if key not in data_dict:
+                    data_dict[key] = {
+                        'load_name': load_name,
+                        'container': container_name,
+                        'pod': pod_name,
+                        'timestamp': ts,
+                        'datetime': datetime.fromtimestamp(ts),
+                        'cpu_cores': 0,
+                        'cpu_millicores': 0,
+                        'memory_gb': 0,
+                    }
+                data_dict[key]['memory_gb'] = mem_val
+        
+        # Convert dictionary to list of rows
+        rows.extend(data_dict.values())
+    
+    if not rows:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(rows)
+    df = df.sort_values(['load_name', 'container', 'timestamp']).reset_index(drop=True)
+    
+    # Add relative minute column per load and container
+    for load in df['load_name'].unique():
+        for container in df[df['load_name'] == load]['container'].unique():
+            mask = (df['load_name'] == load) & (df['container'] == container)
+            if mask.any():
+                min_ts = df.loc[mask, 'timestamp'].min()
+                df.loc[mask, 'minute'] = ((df.loc[mask, 'timestamp'] - min_ts) / 60).astype(int) + 1
+    
+    return df
+
+
+def create_per_container_cpu_chart(container_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create time-series chart showing CPU usage per container."""
+    if container_df.empty:
+        return
+    
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Get unique combinations of load and container
+    loads = container_df['load_name'].unique()
+    containers = container_df['container'].unique()
+    
+    # Create a color map for containers
+    container_colors = {}
+    for i, container in enumerate(containers):
+        container_colors[container] = LOAD_COLORS[i % len(LOAD_COLORS)]
+    
+    # Plot each load/container combination
+    for load in loads:
+        load_data = container_df[container_df['load_name'] == load]
+        for container in containers:
+            container_data = load_data[load_data['container'] == container]
+            if not container_data.empty:
+                label = f"{load}/{container}"
+                ax.plot(container_data['minute'], container_data['cpu_millicores'], 
+                       label=label, color=container_colors[container],
+                       linewidth=2, marker='o', markersize=3, alpha=0.8)
+    
+    ax.set_ylabel('CPU (millicores)', fontsize=11, fontweight='bold')
+    ax.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax.set_title(f'{report_name}\nCPU Usage Per Container Over Time', fontsize=12, fontweight='bold')
+    ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-per_container_cpu.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_per_container_memory_chart(container_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create time-series chart showing memory usage per container."""
+    if container_df.empty:
+        return
+    
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Get unique combinations of load and container
+    loads = container_df['load_name'].unique()
+    containers = container_df['container'].unique()
+    
+    # Create a color map for containers
+    container_colors = {}
+    for i, container in enumerate(containers):
+        container_colors[container] = LOAD_COLORS[i % len(LOAD_COLORS)]
+    
+    # Plot each load/container combination
+    for load in loads:
+        load_data = container_df[container_df['load_name'] == load]
+        for container in containers:
+            container_data = load_data[load_data['container'] == container]
+            if not container_data.empty and 'memory_gb' in container_data.columns:
+                # Filter out rows where memory_gb is NaN or 0
+                container_data = container_data[container_data['memory_gb'].notna() & (container_data['memory_gb'] > 0)]
+                if not container_data.empty:
+                    label = f"{load}/{container}"
+                    ax.plot(container_data['minute'], container_data['memory_gb'], 
+                           label=label, color=container_colors[container],
+                           linewidth=2, marker='o', markersize=3, alpha=0.8)
+    
+    ax.set_ylabel('Memory (GB)', fontsize=11, fontweight='bold')
+    ax.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax.set_title(f'{report_name}\nMemory Usage Per Container Over Time', fontsize=12, fontweight='bold')
+    ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-per_container_memory.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str, results: list[dict[str, Any]] = None) -> None:
     """Generate all time-series PNG charts."""
     if ts_df.empty:
         print("\n⚠️  No time-series data found, skipping time-series charts")
-        return
+    else:
+        print("\n📈 Generating time-series charts (PNG)...")
+        charts_dir = output_dir / 'charts'
+        charts_dir.mkdir(parents=True, exist_ok=True)
+        
+        create_timeseries_latency_chart(ts_df, charts_dir, report_name, timestamp)
+        create_timeseries_resources_chart(ts_df, charts_dir, report_name, timestamp)
+        create_timeseries_throughput_chart(ts_df, charts_dir, report_name, timestamp)
+        create_timeseries_errors_chart(ts_df, charts_dir, report_name, timestamp)
+        create_timeseries_spans_returned_chart(ts_df, charts_dir, report_name, timestamp)
     
-    print("\n📈 Generating time-series charts (PNG)...")
-    charts_dir = output_dir / 'charts'
-    charts_dir.mkdir(parents=True, exist_ok=True)
-    
-    create_timeseries_latency_chart(ts_df, charts_dir, report_name, timestamp)
-    create_timeseries_resources_chart(ts_df, charts_dir, report_name, timestamp)
-    create_timeseries_throughput_chart(ts_df, charts_dir, report_name, timestamp)
-    create_timeseries_errors_chart(ts_df, charts_dir, report_name, timestamp)
-    create_timeseries_spans_returned_chart(ts_df, charts_dir, report_name, timestamp)
+    # Generate per-container charts if data is available
+    if results:
+        print("\n📊 Generating per-container charts (PNG)...")
+        charts_dir = output_dir / 'charts'
+        charts_dir.mkdir(parents=True, exist_ok=True)
+        
+        container_df = extract_per_container_data(results)
+        if not container_df.empty:
+            create_per_container_cpu_chart(container_df, charts_dir, report_name, timestamp)
+            create_per_container_memory_chart(container_df, charts_dir, report_name, timestamp)
+        else:
+            print("  ⚠️  No per-container data found, skipping per-container charts")
 
 
 # =============================================================================
@@ -1168,6 +1348,330 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
     print(f"  ✅ Created: {output_path}")
 
 
+def generate_per_container_report(results: list[dict[str, Any]], output_dir: Path, report_name: str) -> None:
+    """Generate per-container report with average and max CPU and memory usage."""
+    print("\n📊 Generating per-container report...")
+    
+    # Extract per-container statistics
+    container_stats = []
+    
+    for r in results:
+        load_name = r.get('load_name', 'unknown')
+        per_container = r.get('per_container', {})
+        
+        if not per_container:
+            continue
+        
+        cpu_data = per_container.get('cpu_cores', [])
+        memory_data = per_container.get('memory_gb', [])
+        
+        # Process CPU data per container
+        cpu_by_container = {}
+        for container_info in cpu_data:
+            container_name = container_info.get('container', 'unknown')
+            pod_name = container_info.get('pod', 'unknown')
+            values = container_info.get('values', [])
+            
+            if not values:
+                continue
+            
+            # Calculate stats for this container
+            # Include all CPU values (including zeros, as container might be idle)
+            cpu_values = [item.get('value', 0) for item in values if item.get('value') is not None]
+            if cpu_values:
+                avg_cpu = sum(cpu_values) / len(cpu_values)
+                max_cpu = max(cpu_values)
+            else:
+                avg_cpu = 0
+                max_cpu = 0
+            
+            key = (load_name, container_name, pod_name)
+            if key not in cpu_by_container:
+                cpu_by_container[key] = {'avg': 0, 'max': 0}
+            cpu_by_container[key] = {'avg': avg_cpu, 'max': max_cpu}
+        
+        # Process memory data per container
+        memory_by_container = {}
+        for container_info in memory_data:
+            container_name = container_info.get('container', 'unknown')
+            pod_name = container_info.get('pod', 'unknown')
+            values = container_info.get('values', [])
+            
+            if not values:
+                continue
+            
+            # Calculate stats for this container
+            # Filter out zero memory values (invalid - container must use some memory)
+            mem_values = [item.get('value', 0) for item in values if item.get('value', 0) > 0]
+            if mem_values:
+                avg_memory = sum(mem_values) / len(mem_values)
+                max_memory = max(mem_values)
+            else:
+                avg_memory = 0
+                max_memory = 0
+            
+            key = (load_name, container_name, pod_name)
+            if key not in memory_by_container:
+                memory_by_container[key] = {'avg': 0, 'max': 0}
+            memory_by_container[key] = {'avg': avg_memory, 'max': max_memory}
+        
+        # Combine CPU and memory stats
+        all_keys = set(cpu_by_container.keys()) | set(memory_by_container.keys())
+        for key in all_keys:
+            load, container, pod = key
+            cpu_stats = cpu_by_container.get(key, {'avg': 0, 'max': 0})
+            mem_stats = memory_by_container.get(key, {'avg': 0, 'max': 0})
+            
+            container_stats.append({
+                'load_name': load,
+                'container': container,
+                'pod': pod,
+                'avg_cpu_cores': cpu_stats['avg'],
+                'avg_cpu_millicores': cpu_stats['avg'] * 1000,
+                'max_cpu_cores': cpu_stats['max'],
+                'max_cpu_millicores': cpu_stats['max'] * 1000,
+                'avg_memory_gb': mem_stats['avg'],
+                'max_memory_gb': mem_stats['max'],
+            })
+    
+    if not container_stats:
+        print("  ⚠️  No per-container data found, skipping per-container report")
+        return
+    
+    # Create DataFrame for easier manipulation
+    df_containers = pd.DataFrame(container_stats)
+    df_containers = df_containers.sort_values(['load_name', 'pod', 'container']).reset_index(drop=True)
+    
+    # Calculate pod totals (sum of all containers in each pod)
+    pod_totals = df_containers.groupby(['load_name', 'pod']).agg({
+        'avg_cpu_cores': 'sum',
+        'max_cpu_cores': 'sum',
+        'avg_memory_gb': 'sum',
+        'max_memory_gb': 'sum',
+    }).reset_index()
+    pod_totals.columns = ['load_name', 'pod', 'pod_avg_cpu_cores', 'pod_max_cpu_cores', 
+                          'pod_avg_memory_gb', 'pod_max_memory_gb']
+    
+    # Merge pod totals back to container stats
+    df_containers = df_containers.merge(pod_totals, on=['load_name', 'pod'], how='left')
+    
+    # Calculate percentages
+    df_containers['avg_cpu_percent'] = df_containers.apply(
+        lambda row: (row['avg_cpu_cores'] / row['pod_avg_cpu_cores'] * 100) 
+        if row['pod_avg_cpu_cores'] > 0 else 0, axis=1
+    )
+    df_containers['max_cpu_percent'] = df_containers.apply(
+        lambda row: (row['max_cpu_cores'] / row['pod_max_cpu_cores'] * 100) 
+        if row['pod_max_cpu_cores'] > 0 else 0, axis=1
+    )
+    df_containers['avg_memory_percent'] = df_containers.apply(
+        lambda row: (row['avg_memory_gb'] / row['pod_avg_memory_gb'] * 100) 
+        if row['pod_avg_memory_gb'] > 0 else 0, axis=1
+    )
+    df_containers['max_memory_percent'] = df_containers.apply(
+        lambda row: (row['max_memory_gb'] / row['pod_max_memory_gb'] * 100) 
+        if row['pod_max_memory_gb'] > 0 else 0, axis=1
+    )
+    
+    # Round percentages to 2 decimal places
+    df_containers['avg_cpu_percent'] = df_containers['avg_cpu_percent'].round(2)
+    df_containers['max_cpu_percent'] = df_containers['max_cpu_percent'].round(2)
+    df_containers['avg_memory_percent'] = df_containers['avg_memory_percent'].round(2)
+    df_containers['max_memory_percent'] = df_containers['max_memory_percent'].round(2)
+    
+    # Generate HTML report
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{report_name} - Per-Container Resource Usage</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: {COLORS['background']};
+            color: {COLORS['text']};
+            padding: 20px;
+            margin: 0;
+        }}
+        h1 {{
+            text-align: center;
+            color: {COLORS['primary']};
+            margin-bottom: 10px;
+        }}
+        h2 {{
+            text-align: center;
+            color: {COLORS['text']};
+            margin-bottom: 30px;
+            font-weight: normal;
+            font-size: 1.1em;
+        }}
+        .container {{
+            max-width: 1600px;
+            margin: 0 auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background-color: {COLORS['surface']};
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            margin-bottom: 30px;
+        }}
+        th {{
+            background-color: {COLORS['primary']};
+            color: {COLORS['background']};
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+        }}
+        td {{
+            padding: 12px 10px;
+            border-bottom: 1px solid #333355;
+        }}
+        tr:hover {{
+            background-color: rgba(0, 217, 255, 0.1);
+        }}
+        .load-header {{
+            background-color: {COLORS['surface']};
+            color: {COLORS['primary']};
+            font-weight: bold;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+            font-size: 0.9em;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{report_name}</h1>
+        <h2>Per-Container Resource Usage Report</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Load</th>
+                    <th>Container</th>
+                    <th>Pod</th>
+                    <th>Avg CPU (cores)</th>
+                    <th>Avg CPU (millicores)</th>
+                    <th>Avg CPU %</th>
+                    <th>Max CPU (cores)</th>
+                    <th>Max CPU (millicores)</th>
+                    <th>Max CPU %</th>
+                    <th>Avg Memory (GB)</th>
+                    <th>Avg Memory %</th>
+                    <th>Max Memory (GB)</th>
+                    <th>Max Memory %</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+    
+    current_load = None
+    current_pod = None
+    for _, row in df_containers.iterrows():
+        load_name = row['load_name']
+        pod_name = row['pod']
+        
+        # Add separator row if load changed
+        if load_name != current_load:
+            if current_load is not None:
+                html_content += "                <tr><td colspan='13' style='height: 10px;'></td></tr>\n"
+            current_load = load_name
+            current_pod = None
+        
+        # Add pod total row after all containers in previous pod
+        if pod_name != current_pod and current_pod is not None:
+            # Find pod totals for previous pod
+            pod_row = df_containers[
+                (df_containers['load_name'] == current_load) & 
+                (df_containers['pod'] == current_pod)
+            ].iloc[0]
+            html_content += f"""                <tr style="background-color: rgba(0, 217, 255, 0.15); font-weight: bold;">
+                    <td><strong>{current_load}</strong></td>
+                    <td colspan="2"><em>Pod Total: {current_pod}</em></td>
+                    <td>{pod_row['pod_avg_cpu_cores']:.3f}</td>
+                    <td>{pod_row['pod_avg_cpu_cores'] * 1000:.1f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_max_cpu_cores']:.3f}</td>
+                    <td>{pod_row['pod_max_cpu_cores'] * 1000:.1f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_avg_memory_gb']:.2f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_max_memory_gb']:.2f}</td>
+                    <td>100.00%</td>
+                </tr>
+"""
+        
+        html_content += f"""                <tr>
+                    <td><strong>{load_name}</strong></td>
+                    <td>{row['container']}</td>
+                    <td>{row['pod']}</td>
+                    <td>{row['avg_cpu_cores']:.3f}</td>
+                    <td>{row['avg_cpu_millicores']:.1f}</td>
+                    <td>{row['avg_cpu_percent']:.2f}%</td>
+                    <td>{row['max_cpu_cores']:.3f}</td>
+                    <td>{row['max_cpu_millicores']:.1f}</td>
+                    <td>{row['max_cpu_percent']:.2f}%</td>
+                    <td>{row['avg_memory_gb']:.2f}</td>
+                    <td>{row['avg_memory_percent']:.2f}%</td>
+                    <td>{row['max_memory_gb']:.2f}</td>
+                    <td>{row['max_memory_percent']:.2f}%</td>
+                </tr>
+"""
+        
+        current_pod = pod_name
+    
+    # Add pod total row for the last pod
+    if current_pod is not None:
+        pod_row = df_containers[
+            (df_containers['load_name'] == current_load) & 
+            (df_containers['pod'] == current_pod)
+        ].iloc[0]
+        html_content += f"""                <tr style="background-color: rgba(0, 217, 255, 0.15); font-weight: bold;">
+                    <td><strong>{current_load}</strong></td>
+                    <td colspan="2"><em>Pod Total: {current_pod}</em></td>
+                    <td>{pod_row['pod_avg_cpu_cores']:.3f}</td>
+                    <td>{pod_row['pod_avg_cpu_cores'] * 1000:.1f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_max_cpu_cores']:.3f}</td>
+                    <td>{pod_row['pod_max_cpu_cores'] * 1000:.1f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_avg_memory_gb']:.2f}</td>
+                    <td>100.00%</td>
+                    <td>{pod_row['pod_max_memory_gb']:.2f}</td>
+                    <td>100.00%</td>
+                </tr>
+"""
+    
+    html_content += """            </tbody>
+        </table>
+        <p class="footer">Generated by Tempo Performance Test Framework</p>
+    </div>
+</body>
+</html>
+"""
+    
+    output_path = output_dir / 'per-container-report.html'
+    with open(output_path, 'w') as f:
+        f.write(html_content)
+    print(f"  ✅ Created: {output_path}")
+    
+    # Generate CSV report (select relevant columns, excluding pod total columns)
+    csv_path = output_dir / 'per-container-report.csv'
+    csv_columns = ['load_name', 'container', 'pod', 
+                   'avg_cpu_cores', 'avg_cpu_millicores', 'avg_cpu_percent',
+                   'max_cpu_cores', 'max_cpu_millicores', 'max_cpu_percent',
+                   'avg_memory_gb', 'avg_memory_percent',
+                   'max_memory_gb', 'max_memory_percent']
+    df_containers[csv_columns].to_csv(csv_path, index=False)
+    print(f"  ✅ Created: {csv_path}")
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -1217,10 +1721,11 @@ def main():
 
     # Generate outputs
     generate_static_charts(df, results_dir, report_name, timestamp)
-    generate_timeseries_charts(ts_df, results_dir, report_name, timestamp)
+    generate_timeseries_charts(ts_df, results_dir, report_name, timestamp, results)
     generate_interactive_dashboard(df, results_dir, report_name)
     generate_timeseries_dashboard(ts_df, results_dir, report_name)
     generate_summary_table(df, results_dir, report_name)
+    generate_per_container_report(results, results_dir, report_name)
 
     print("\n" + "=" * 60)
     print("  Chart generation complete!")
@@ -1228,9 +1733,12 @@ def main():
     print(f"\nOutputs:")
     print(f"  📊 Static charts:          {results_dir}/charts/report-{timestamp}-*.png")
     print(f"  📈 Time-series charts:     {results_dir}/charts/report-{timestamp}-timeseries_*.png")
+    print(f"  📦 Per-container charts:   {results_dir}/charts/report-{timestamp}-per_container_*.png")
     print(f"  🌐 Summary Dashboard:      {results_dir}/dashboard.html")
     print(f"  🌐 Time-Series Dashboard:  {results_dir}/timeseries-dashboard.html")
     print(f"  📋 Summary Table:          {results_dir}/summary.html")
+    print(f"  📋 Per-Container Report:   {results_dir}/per-container-report.html")
+    print(f"  📋 Per-Container CSV:      {results_dir}/per-container-report.csv")
 
 
 if __name__ == '__main__':

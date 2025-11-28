@@ -350,6 +350,55 @@ collect_timeseries_data() {
 }
 
 #
+# Collect per-container time-series data (CPU and memory per container)
+#
+collect_per_container_timeseries() {
+    local duration_minutes="$1"
+    
+    log_info "Collecting per-container time-series data (${duration_minutes} minutes, 1-minute intervals)..."
+    
+    local end_time start_time
+    end_time=$(date +%s)
+    start_time=$((end_time - duration_minutes * 60))
+    
+    # CPU time-series per container (without sum aggregation)
+    local cpu_response
+    cpu_response=$(prom_range_query \
+        "rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[5m])" \
+        "$start_time" "$end_time" "60")
+    
+    # Extract per-container CPU data (group by container name)
+    TS_CPU_PER_CONTAINER=$(echo "$cpu_response" | jq -r '
+        .data.result // [] | 
+        map({
+            container: (.metric.container // "unknown"),
+            pod: (.metric.pod // "unknown"),
+            values: (.values // [] | map({timestamp: .[0], value: (.[1] | tonumber)}))
+        })
+    ' 2>/dev/null || echo "[]")
+    
+    # Memory time-series per container (without sum aggregation)
+    local mem_response
+    mem_response=$(prom_range_query \
+        "container_memory_working_set_bytes{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}" \
+        "$start_time" "$end_time" "60")
+    
+    # Extract per-container memory data (convert to GB)
+    TS_MEMORY_PER_CONTAINER=$(echo "$mem_response" | jq -r '
+        .data.result // [] | 
+        map({
+            container: (.metric.container // "unknown"),
+            pod: (.metric.pod // "unknown"),
+            values: (.values // [] | map({timestamp: .[0], value: ((.[1] | tonumber) / 1073741824)}))
+        })
+    ' 2>/dev/null || echo "[]")
+    
+    local container_count
+    container_count=$(echo "$TS_CPU_PER_CONTAINER" | jq 'length' 2>/dev/null || echo "0")
+    log_info "Collected per-container data for $container_count container(s)"
+}
+
+#
 # Calculate resource recommendations with safety margin
 #
 calculate_resource_recommendations() {
@@ -425,6 +474,8 @@ write_metrics_json() {
         --argjson ts_failures "${TS_FAILURES:-[]}" \
         --argjson ts_dropped "${TS_DROPPED:-[]}" \
         --argjson ts_spans_returned "${TS_SPANS_RETURNED:-[]}" \
+        --argjson ts_cpu_per_container "${TS_CPU_PER_CONTAINER:-[]}" \
+        --argjson ts_memory_per_container "${TS_MEMORY_PER_CONTAINER:-[]}" \
         '{
           timestamp: $timestamp,
           load_name: $load_name,
@@ -470,6 +521,10 @@ write_metrics_json() {
             query_failures_per_second: $ts_failures,
             dropped_spans_per_second: $ts_dropped,
             avg_spans_returned: $ts_spans_returned
+          },
+          per_container: {
+            cpu_cores: $ts_cpu_per_container,
+            memory_gb: $ts_memory_per_container
           }
         }' > "$output_file"
     
@@ -534,6 +589,8 @@ main() {
     TS_FAILURES="[]"
     TS_DROPPED="[]"
     TS_SPANS_RETURNED="[]"
+    TS_CPU_PER_CONTAINER="[]"
+    TS_MEMORY_PER_CONTAINER="[]"
     
     get_prometheus_access
     collect_query_latencies
@@ -542,6 +599,7 @@ main() {
     collect_error_metrics
     collect_spans_returned_metrics
     collect_timeseries_data "$duration_minutes"
+    collect_per_container_timeseries "$duration_minutes"
     calculate_resource_recommendations
     write_metrics_json "$load_name" "$output_file"
     

@@ -90,6 +90,47 @@ roleRef:
   name: cluster-admin
   apiGroup: rbac.authorization.k8s.io
 ---
+# Grant the query-load-account Service Account permission to read traces from the 'tenant-1' tenant
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: allow-read-traces-tenant-1
+rules:
+- apiGroups: [tempo.grafana.com]
+  resources: [tenant-1]  # tenantName
+  resourceNames: [traces]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: allow-read-traces-tenant-1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: allow-read-traces-tenant-1
+subjects:
+- kind: ServiceAccount
+  name: query-load-account
+  namespace: tempo-perf-test
+---
+# Grant the query-load-account ServiceAccount view permissions of the tempo-perf-test namespace.
+# If the ServiceAccount cannot access any namespaces, every 'get' request will be denied:
+# https://github.com/observatorium/opa-openshift/pull/18/files
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: view-namespace-tenant-1
+  namespace: tempo-perf-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+- kind: ServiceAccount
+  name: query-load-account
+  namespace: tempo-perf-test
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,9 +139,10 @@ metadata:
 data:
   config.yaml: |
     tempo:
-      queryEndpoint: "http://tempo-simplest:3200"
+      queryEndpoint: "https://tempo-simplest-gateway:8080"
 
     namespace: "tempo-perf-test"
+    tenantId: "tenant-1"
 
     query:
       delay: "5s"

@@ -1,6 +1,17 @@
 # Tempo Performance Testing Framework
 
-A comprehensive performance testing framework for **Tempo Monolithic** on OpenShift. This project provides automated tools for deploying Tempo, running load tests with varying TPS configurations, collecting metrics, and generating reports.
+A comprehensive performance testing framework for **Tempo Monolithic** on OpenShift with **multitenancy support**. This project provides automated tools for deploying Tempo, running load tests with varying TPS configurations, collecting metrics, and generating reports.
+
+## Architecture
+
+The framework uses **OpenTelemetry Collector** (managed by OpenTelemetry Operator) as an authentication and tenant header proxy:
+
+- **Trace Generators** → **OTel Collector** (no auth) → **Tempo** (with OpenShift auth + tenant headers)
+- **Query Generator** → **Tempo** (direct, with OpenShift auth + tenant headers)
+
+The OTel Collector handles:
+- Adding `Authorization: Bearer <token>` header for OpenShift gateway authentication
+- Adding `X-Scope-OrgID: <tenant-id>` header for Tempo multitenancy isolation
 
 ## Table of Contents
 
@@ -31,6 +42,7 @@ A comprehensive performance testing framework for **Tempo Monolithic** on OpenSh
 - **OpenShift Cluster** with admin access
 - **Tempo Operator** installed (from OperatorHub)
 - **Grafana Operator** installed (from OperatorHub)
+- **OpenTelemetry Operator** installed (from OperatorHub) - **Required for multitenancy**
 - **CLI Tools**: `oc`, `jq`, `yq`, `bc`
 - **Docker** (for building custom images)
 - **Python 3.8+** (optional, for chart generation)
@@ -47,6 +59,9 @@ perf-test-tempo-monolithic/
 │   ├── tempo-monolithic/
 │   │   ├── base/                     # Base Tempo configuration
 │   │   └── overlays/                 # Resource overlays (small/medium/large)
+│   ├── otel-collector/               # OpenTelemetry Collector for multitenancy
+│   │   ├── collector.yaml            # OpenTelemetryCollector CR
+│   │   └── rbac.yaml                 # ServiceAccount and RBAC
 │   ├── tempo-stack/
 │   └── storage/
 │       └── minio.yaml                # MinIO for S3 storage
@@ -218,6 +233,27 @@ This creates:
 | `make build-push-gen` | Build and push query generator image |
 
 ## Configuration
+
+### Multitenancy Configuration
+
+The framework supports multitenancy with configurable tenant IDs. By default, it uses `tenant-1`. To configure tenants:
+
+1. Edit `perf-tests/config/loads.yaml`:
+   ```yaml
+   tenants:
+     - id: "tenant-1"
+       description: "Default tenant for performance testing"
+   
+   otelCollector:
+     serviceName: "otel-collector-collector"
+     port: 4317
+   ```
+
+2. The tenant ID is automatically used by:
+   - OpenTelemetry Collector (for trace ingestion)
+   - Query Generator (for query requests)
+
+3. To add more tenants in the future, deploy additional OTel Collector instances with different tenant IDs.
 
 ### Environment Variables
 
