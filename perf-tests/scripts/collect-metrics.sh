@@ -120,38 +120,82 @@ extract_value() {
 }
 
 #
+# Calculate adaptive rate window based on test duration
+# For short tests (≤10 minutes), use 1m window; for longer tests, use 5m window
+#
+get_rate_window() {
+    local duration_minutes="$1"
+    
+    # Default to 5m if duration not provided
+    if [ -z "$duration_minutes" ] || [ "$duration_minutes" = "0" ]; then
+        echo "5m"
+        return
+    fi
+    
+    # Use 1m window for tests ≤ 10 minutes, 5m for longer tests
+    if [ "$(echo "$duration_minutes <= 10" | bc 2>/dev/null || echo "0")" = "1" ]; then
+        echo "1m"
+    else
+        echo "5m"
+    fi
+}
+
+#
 # Collect query latency metrics
 #
 collect_query_latencies() {
-    log_info "Collecting query latency metrics..."
+    local duration_minutes="${1:-30}"
+    local rate_window
+    rate_window=$(get_rate_window "$duration_minutes")
+    
+    log_info "Collecting query latency metrics (using ${rate_window} rate window for ${duration_minutes}min test)..."
     
     # P50 latency
     local p50_response
-    p50_response=$(prom_query "histogram_quantile(0.50, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[5m])) by (le))")
+    p50_response=$(prom_query "histogram_quantile(0.50, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[${rate_window}])) by (le))")
     P50_LATENCY=$(extract_value "$p50_response" "0")
     
     # P90 latency
     local p90_response
-    p90_response=$(prom_query "histogram_quantile(0.90, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[5m])) by (le))")
+    p90_response=$(prom_query "histogram_quantile(0.90, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[${rate_window}])) by (le))")
     P90_LATENCY=$(extract_value "$p90_response" "0")
     
     # P99 latency
     local p99_response
-    p99_response=$(prom_query "histogram_quantile(0.99, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[5m])) by (le))")
+    p99_response=$(prom_query "histogram_quantile(0.99, sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_bucket[${rate_window}])) by (le))")
     P99_LATENCY=$(extract_value "$p99_response" "0")
     
-    log_info "Query latencies - P50: ${P50_LATENCY}s, P90: ${P90_LATENCY}s, P99: ${P99_LATENCY}s"
+    # Average latency (mean) - calculated from sum/count
+    local avg_sum_response avg_count_response
+    avg_sum_response=$(prom_query "sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_sum[${rate_window}]))")
+    avg_count_response=$(prom_query "sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_count[${rate_window}]))")
+    
+    local avg_sum avg_count
+    avg_sum=$(extract_value "$avg_sum_response" "0")
+    avg_count=$(extract_value "$avg_count_response" "0")
+    
+    if [ "$(echo "$avg_count > 0" | bc 2>/dev/null || echo "0")" = "1" ]; then
+        AVG_LATENCY=$(echo "scale=6; $avg_sum / $avg_count" | bc 2>/dev/null || echo "0")
+    else
+        AVG_LATENCY="0"
+    fi
+    
+    log_info "Query latencies - P50: ${P50_LATENCY}s, P90: ${P90_LATENCY}s, P99: ${P99_LATENCY}s, Avg: ${AVG_LATENCY}s"
 }
 
 #
 # Collect resource utilization metrics
 #
 collect_resource_metrics() {
-    log_info "Collecting resource utilization metrics..."
+    local duration_minutes="${1:-30}"
+    local rate_window
+    rate_window=$(get_rate_window "$duration_minutes")
+    
+    log_info "Collecting resource utilization metrics (using ${rate_window} rate window)..."
     
     # CPU usage (cores) for tempo pods
     local cpu_response
-    cpu_response=$(prom_query "sum(rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[5m]))")
+    cpu_response=$(prom_query "sum(rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[${rate_window}]))")
     AVG_CPU=$(extract_value "$cpu_response" "0")
     
     # Memory usage (bytes) for tempo pods
@@ -173,16 +217,20 @@ collect_resource_metrics() {
 # Collect throughput metrics
 #
 collect_throughput_metrics() {
-    log_info "Collecting throughput metrics..."
+    local duration_minutes="${1:-30}"
+    local rate_window
+    rate_window=$(get_rate_window "$duration_minutes")
+    
+    log_info "Collecting throughput metrics (using ${rate_window} rate window)..."
     
     # Spans received per second
     local spans_response
-    spans_response=$(prom_query "sum(rate(tempo_distributor_spans_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[5m]))")
+    spans_response=$(prom_query "sum(rate(tempo_distributor_spans_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[${rate_window}]))")
     SPANS_PER_SEC=$(extract_value "$spans_response" "0")
     
     # Bytes received per second
     local bytes_response
-    bytes_response=$(prom_query "sum(rate(tempo_distributor_bytes_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[5m]))")
+    bytes_response=$(prom_query "sum(rate(tempo_distributor_bytes_received_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[${rate_window}]))")
     BYTES_PER_SEC=$(extract_value "$bytes_response" "0")
     
     log_info "Throughput - Spans/sec: ${SPANS_PER_SEC}, Bytes/sec: ${BYTES_PER_SEC}"
@@ -192,17 +240,24 @@ collect_throughput_metrics() {
 # Collect error metrics
 #
 collect_error_metrics() {
-    log_info "Collecting error metrics..."
+    local duration_minutes="${1:-30}"
+    local rate_window
+    rate_window=$(get_rate_window "$duration_minutes")
+    
+    log_info "Collecting error metrics (using ${rate_window} rate window)..."
     
     # Query failures
     local failures_response
-    failures_response=$(prom_query "sum(rate(query_failures_count_${PERF_TEST_NAMESPACE//-/_}[5m]))")
+    failures_response=$(prom_query "sum(rate(query_failures_count_${PERF_TEST_NAMESPACE//-/_}[${rate_window}]))")
     QUERY_FAILURES=$(extract_value "$failures_response" "0")
     
-    # Total queries for error rate calculation
+    # Total queries for error rate calculation (this is also actual QPS)
     local total_response
-    total_response=$(prom_query "sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_count[5m]))")
+    total_response=$(prom_query "sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_count[${rate_window}]))")
     TOTAL_QUERIES=$(extract_value "$total_response" "0")
+    
+    # Store actual QPS (same as total queries rate)
+    ACTUAL_QPS="$TOTAL_QUERIES"
     
     # Calculate error rate
     if [ "$TOTAL_QUERIES" != "0" ] && [ "$(echo "$TOTAL_QUERIES > 0" | bc 2>/dev/null || echo "0")" = "1" ]; then
@@ -213,22 +268,27 @@ collect_error_metrics() {
     
     # Dropped spans
     local dropped_response
-    dropped_response=$(prom_query "sum(rate(tempo_distributor_spans_dropped_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[5m]))")
+    dropped_response=$(prom_query "sum(rate(tempo_distributor_spans_dropped_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[${rate_window}]))")
     DROPPED_SPANS=$(extract_value "$dropped_response" "0")
     
     log_info "Errors - Query failures/sec: ${QUERY_FAILURES}, Error rate: ${ERROR_RATE}%, Dropped spans/sec: ${DROPPED_SPANS}"
+    log_info "Actual QPS: ${ACTUAL_QPS}"
 }
 
 #
 # Collect spans returned metrics (from query results)
 #
 collect_spans_returned_metrics() {
-    log_info "Collecting spans returned metrics..."
+    local duration_minutes="${1:-30}"
+    local rate_window
+    rate_window=$(get_rate_window "$duration_minutes")
+    
+    log_info "Collecting spans returned metrics (using ${rate_window} rate window)..."
     
     # Average spans returned per query (sum/count from histogram)
     local sum_response count_response
-    sum_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_sum[5m]))")
-    count_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_count[5m]))")
+    sum_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_sum[${rate_window}]))")
+    count_response=$(prom_query "sum(rate(query_load_test_spans_returned_${PERF_TEST_NAMESPACE//-/_}_count[${rate_window}]))")
     
     local sum_val count_val
     sum_val=$(extract_value "$sum_response" "0")
@@ -344,6 +404,13 @@ collect_timeseries_data() {
             value: (if $count_ts[.].value > 0 then ($sum_ts[.].value / $count_ts[.].value) else 0 end)
         })' 2>/dev/null || echo "[]")
     
+    # QPS (queries per second) time-series - rate of queries executed
+    local qps_response
+    qps_response=$(prom_range_query \
+        "sum(rate(query_load_test_${PERF_TEST_NAMESPACE//-/_}_count[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_QPS=$(extract_timeseries "$qps_response")
+    
     local sample_count
     sample_count=$(echo "$TS_CPU" | jq 'length' 2>/dev/null || echo "0")
     log_info "Collected $sample_count time-series data points"
@@ -402,7 +469,7 @@ collect_per_container_timeseries() {
 # Calculate resource recommendations with safety margin
 #
 calculate_resource_recommendations() {
-    log_info "Calculating resource recommendations (30% safety margin)..."
+    log_info "Calculating resource recommendations (20% safety margin)..."
     
     # Peak memory from time-series (maximum value observed)
     if [ "$TS_MEMORY" != "[]" ] && [ -n "$TS_MEMORY" ]; then
@@ -422,9 +489,9 @@ calculate_resource_recommendations() {
         SUSTAINED_CPU="$AVG_CPU"
     fi
     
-    # Calculate recommendations with 30% safety margin
-    RECOMMENDED_CPU=$(echo "scale=3; $SUSTAINED_CPU * 1.30" | bc 2>/dev/null || echo "0")
-    RECOMMENDED_MEMORY_GB=$(echo "scale=3; $PEAK_MEMORY_GB * 1.30" | bc 2>/dev/null || echo "0")
+    # Calculate recommendations with 20% safety margin
+    RECOMMENDED_CPU=$(echo "scale=3; $SUSTAINED_CPU * 1.20" | bc 2>/dev/null || echo "0")
+    RECOMMENDED_MEMORY_GB=$(echo "scale=3; $PEAK_MEMORY_GB * 1.20" | bc 2>/dev/null || echo "0")
     
     # Round up CPU to nearest 100m (0.1 cores)
     RECOMMENDED_CPU=$(echo "scale=1; x=$RECOMMENDED_CPU * 10; scale=0; x=x+0.9; x/=1; scale=1; x/10" | bc 2>/dev/null || echo "0.1")
@@ -433,7 +500,7 @@ calculate_resource_recommendations() {
     RECOMMENDED_MEMORY_GB=$(echo "scale=1; x=$RECOMMENDED_MEMORY_GB * 2; scale=0; x=x+0.9; x/=1; scale=1; x/2" | bc 2>/dev/null || echo "0.5")
     
     log_info "Peak Memory: ${PEAK_MEMORY_GB} GB, Sustained CPU: ${SUSTAINED_CPU} cores"
-    log_info "Recommended (with 30% margin) - CPU: ${RECOMMENDED_CPU} cores, Memory: ${RECOMMENDED_MEMORY_GB} GB"
+    log_info "Recommended (with 20% margin) - CPU: ${RECOMMENDED_CPU} cores, Memory: ${RECOMMENDED_MEMORY_GB} GB"
 }
 
 #
@@ -452,6 +519,7 @@ write_metrics_json() {
         --argjson p50 "${P50_LATENCY:-0}" \
         --argjson p90 "${P90_LATENCY:-0}" \
         --argjson p99 "${P99_LATENCY:-0}" \
+        --argjson avg_latency "${AVG_LATENCY:-0}" \
         --argjson cpu "${AVG_CPU:-0}" \
         --argjson mem "${MAX_MEMORY_GB:-0}" \
         --argjson sustained_cpu "${SUSTAINED_CPU:-0}" \
@@ -464,6 +532,7 @@ write_metrics_json() {
         --argjson error_rate "${ERROR_RATE:-0}" \
         --argjson dropped "${DROPPED_SPANS:-0}" \
         --argjson avg_spans_returned "${AVG_SPANS_RETURNED:-0}" \
+        --argjson actual_qps "${ACTUAL_QPS:-0}" \
         --argjson ts_cpu "${TS_CPU:-[]}" \
         --argjson ts_memory "${TS_MEMORY:-[]}" \
         --argjson ts_spans "${TS_SPANS:-[]}" \
@@ -474,6 +543,7 @@ write_metrics_json() {
         --argjson ts_failures "${TS_FAILURES:-[]}" \
         --argjson ts_dropped "${TS_DROPPED:-[]}" \
         --argjson ts_spans_returned "${TS_SPANS_RETURNED:-[]}" \
+        --argjson ts_qps "${TS_QPS:-[]}" \
         --argjson ts_cpu_per_container "${TS_CPU_PER_CONTAINER:-[]}" \
         --argjson ts_memory_per_container "${TS_MEMORY_PER_CONTAINER:-[]}" \
         '{
@@ -483,7 +553,8 @@ write_metrics_json() {
             query_latencies: {
               p50_seconds: $p50,
               p90_seconds: $p90,
-              p99_seconds: $p99
+              p99_seconds: $p99,
+              avg_seconds: $avg_latency
             },
             resources: {
               avg_cpu_cores: $cpu,
@@ -492,7 +563,7 @@ write_metrics_json() {
               peak_memory_gb: $peak_memory
             },
             resource_recommendations: {
-              safety_margin_percent: 30,
+              safety_margin_percent: 20,
               cpu_cores: $recommended_cpu,
               memory_gb: $recommended_memory
             },
@@ -506,7 +577,8 @@ write_metrics_json() {
               dropped_spans_per_second: $dropped
             },
             query_results: {
-              avg_spans_returned: $avg_spans_returned
+              avg_spans_returned: $avg_spans_returned,
+              actual_qps: $actual_qps
             }
           },
           timeseries: {
@@ -520,7 +592,8 @@ write_metrics_json() {
             p99_latency_seconds: $ts_p99,
             query_failures_per_second: $ts_failures,
             dropped_spans_per_second: $ts_dropped,
-            avg_spans_returned: $ts_spans_returned
+            avg_spans_returned: $ts_spans_returned,
+            qps: $ts_qps
           },
           per_container: {
             cpu_cores: $ts_cpu_per_container,
@@ -564,6 +637,7 @@ main() {
     P50_LATENCY="0"
     P90_LATENCY="0"
     P99_LATENCY="0"
+    AVG_LATENCY="0"
     AVG_CPU="0"
     MAX_MEMORY_GB="0"
     SUSTAINED_CPU="0"
@@ -577,6 +651,7 @@ main() {
     DROPPED_SPANS="0"
     TOTAL_QUERIES="0"
     AVG_SPANS_RETURNED="0"
+    ACTUAL_QPS="0"
     
     # Initialize time-series variables
     TS_CPU="[]"
@@ -591,13 +666,14 @@ main() {
     TS_SPANS_RETURNED="[]"
     TS_CPU_PER_CONTAINER="[]"
     TS_MEMORY_PER_CONTAINER="[]"
+    TS_QPS="[]"
     
     get_prometheus_access
-    collect_query_latencies
-    collect_resource_metrics
-    collect_throughput_metrics
-    collect_error_metrics
-    collect_spans_returned_metrics
+    collect_query_latencies "$duration_minutes"
+    collect_resource_metrics "$duration_minutes"
+    collect_throughput_metrics "$duration_minutes"
+    collect_error_metrics "$duration_minutes"
+    collect_spans_returned_metrics "$duration_minutes"
     collect_timeseries_data "$duration_minutes"
     collect_per_container_timeseries "$duration_minutes"
     calculate_resource_recommendations

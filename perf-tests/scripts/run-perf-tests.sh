@@ -40,11 +40,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-log_info() { echo -e "${GREEN}✅${NC} $1"; }
-log_warn() { echo -e "${YELLOW}⚠️${NC} $1"; }
-log_error() { echo -e "${RED}❌${NC} $1"; }
-log_wait() { echo -e "${YELLOW}⏳${NC} $1"; }
-log_section() { echo -e "\n${BLUE}══════════════════════════════════════════════${NC}\n${BLUE}  $1${NC}\n${BLUE}══════════════════════════════════════════════${NC}\n"; }
+log_info() { echo -e "${GREEN}✅${NC} $1" >&2; }
+log_warn() { echo -e "${YELLOW}⚠️${NC} $1" >&2; }
+log_error() { echo -e "${RED}❌${NC} $1" >&2; }
+log_wait() { echo -e "${YELLOW}⏳${NC} $1" >&2; }
+log_section() { echo -e "\n${BLUE}══════════════════════════════════════════════${NC}\n${BLUE}  $1${NC}\n${BLUE}══════════════════════════════════════════════${NC}\n" >&2; }
 
 #
 # Show help
@@ -439,6 +439,32 @@ generate_query_configmap() {
     local load_name="$1"
     local query_qps="$2"
     
+    # Validate query_qps is not empty and is a positive number
+    if [ -z "$query_qps" ] || [ "$query_qps" = "null" ] || [ "$query_qps" = "0" ]; then
+        log_error "Invalid queryQPS value: '$query_qps'. Must be a positive number."
+        return 1
+    fi
+    
+    # Validate query_qps is numeric (integer or decimal)
+    if ! [[ "$query_qps" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        log_error "queryQPS must be a number, got: '$query_qps'"
+        return 1
+    fi
+    
+    # Validate it's positive using bc (handles both integers and decimals)
+    if ! command -v bc &> /dev/null; then
+        # Fallback: simple integer check if bc not available
+        if [ "$(echo "$query_qps" | grep -E '^0+\.?0*$')" != "" ]; then
+            log_error "queryQPS must be > 0, got: '$query_qps'"
+            return 1
+        fi
+    else
+        if [ "$(echo "$query_qps <= 0" | bc 2>/dev/null || echo "1")" = "1" ]; then
+            log_error "queryQPS must be > 0, got: '$query_qps'"
+            return 1
+        fi
+    fi
+    
     local namespace tempo_host tenant_id delay concurrent_queries
     namespace=$(yq eval '.namespace' "$CONFIG_FILE")
     tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
@@ -446,28 +472,110 @@ generate_query_configmap() {
     delay=$(yq eval '.queryGenerator.delay // "5s"' "$CONFIG_FILE")
     concurrent_queries=$(yq eval '.queryGenerator.concurrentQueries // 1' "$CONFIG_FILE")
     
+    # Debug: log values being used
+    log_info "Config values: namespace=$namespace, tempo_host=$tempo_host, tenant_id=$tenant_id, delay=$delay, concurrent_queries=$concurrent_queries"
+    
     # Read the base query generator config
     local base_config="${PROJECT_ROOT}/generators/query-generator/config.yaml"
-    
+    # Verify base config exists
+    if [[ ! -f "$base_config" ]]; then
+        log_error "Base config file not found: $base_config"
+        return 1
+    fi
     # Create a temporary file with updated QPS
     local tmp_config
-    tmp_config=$(mktemp)
+    tmp_config=$(mktemp) || {
+        log_error "Failed to create temporary file"
+        return 1
+    }
     
-    # Copy base config and update targetQPS and other dynamic values
-    cp "$base_config" "$tmp_config"
-    yq eval ".query.targetQPS = $query_qps" -i "$tmp_config"
-    yq eval ".query.delay = \"$delay\"" -i "$tmp_config"
-    yq eval ".query.concurrentQueries = $concurrent_queries" -i "$tmp_config"
-    yq eval ".tempo.queryEndpoint = \"https://${tempo_host}-gateway:8080\"" -i "$tmp_config"
-    yq eval ".namespace = \"$namespace\"" -i "$tmp_config"
-    yq eval ".tenantId = \"$tenant_id\"" -i "$tmp_config"
     
-    # Generate ConfigMap YAML with properly indented config
-    # Read the config file and indent each line by 4 spaces for the ConfigMap
-    local indented_config
-    indented_config=$(sed 's/^/    /' "$tmp_config")
+    # Update config values by piping yq commands to avoid backup file issues with -i flag
+    # Use a pipeline approach: read base config, apply all updates, write to temp file
+    # pipefail is already enabled in the script, so errors in the pipeline will be caught
+    # For numeric values, use yq's numeric assignment (no quotes) to ensure it's treated as a number
+    log_info "Running yq pipeline with base_config=$base_config, query_qps=$query_qps"
+    if ! yq eval ".query.targetQPS = ${query_qps}" "$base_config" | \
+         yq eval ".query.delay = \"$delay\"" - | \
+         yq eval ".query.concurrentQueries = ${concurrent_queries}" - | \
+         yq eval ".tempo.queryEndpoint = \"https://${tempo_host}-gateway:8080\"" - | \
+         yq eval ".namespace = \"$namespace\"" - | \
+         yq eval ".tenantId = \"$tenant_id\"" - > "$tmp_config"; then
+        log_error "Failed to update config values"
+        rm -f "$tmp_config"
+        return 1
+    fi
     
-    cat <<EOF
+    # Debug: show generated config
+    log_info "Generated config file: $tmp_config ($(wc -c < "$tmp_config") bytes)"
+    
+    # Verify targetQPS was set correctly in the generated config
+    # Use cat | yq instead of yq reading file directly (workaround for file access issues)
+    local verify_qps
+    verify_qps=$(cat "$tmp_config" | yq eval '.query.targetQPS' - 2>/dev/null)
+    log_info "Verification: targetQPS = '$verify_qps'"
+    if [ -z "$verify_qps" ] || [ "$verify_qps" = "null" ] || [ "$verify_qps" = "0" ]; then
+        log_error "Failed to set targetQPS in config. Expected: $query_qps, Got: '$verify_qps'"
+        log_error "Temp config content (first 20 lines):"
+        head -20 "$tmp_config" >&2
+        rm -f "$tmp_config"
+        return 1
+    fi
+    
+    # Verify the temp file was created and has content
+    if [[ ! -s "$tmp_config" ]]; then
+        log_error "Generated config file is empty"
+        rm -f "$tmp_config"
+        return 1
+    fi
+    
+    # Verify temp file still exists before reading
+    if [[ ! -f "$tmp_config" ]]; then
+        log_error "Temporary config file was deleted before reading"
+        rm -f "$tmp_config"
+        return 1
+    fi
+    
+    # Validate the YAML file is parseable before using it
+    # Use cat | yq instead of yq reading file directly (workaround for file access issues)
+    if ! cat "$tmp_config" | yq eval '.' - > /dev/null 2>&1; then
+        log_error "Generated config file is not valid YAML"
+        log_error "Config file content:"
+        cat "$tmp_config" >&2 || true
+        rm -f "$tmp_config"
+        return 1
+    fi
+    
+    # Use kubectl/oc create configmap with --from-file
+    # This should handle the file encoding properly
+    # Note: We output to stdout for piping to oc apply
+    # Capture stdout (YAML) separately from stderr (errors/warnings)
+    local cm_output cm_stderr
+    cm_stderr=$(mktemp)
+    cm_output=$(oc create configmap query-load-config \
+        --from-file=config.yaml="$tmp_config" \
+        -n "$namespace" \
+        --dry-run=client \
+        -o yaml 2>"$cm_stderr")
+    local oc_exit_code=$?
+    
+    if [ $oc_exit_code -eq 0 ]; then
+        # Success - output the ConfigMap YAML (clean, no stderr mixed in)
+        echo "$cm_output"
+        rm -f "$cm_stderr"
+    else
+        # If oc create fails, try alternative method: build ConfigMap YAML manually
+        # Redirect warnings to stderr to avoid polluting stdout YAML output
+        log_warn "oc create configmap failed (exit code: $oc_exit_code), trying alternative method..." >&2
+        log_warn "Error output: $(cat "$cm_stderr" 2>/dev/null)" >&2
+        rm -f "$cm_stderr"
+        
+        # Read config content line by line and properly escape for YAML
+        local config_lines
+        config_lines=$(cat "$tmp_config" | sed 's/^/    /')
+        
+        # Output ConfigMap YAML manually
+        cat <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -475,9 +583,12 @@ metadata:
   namespace: ${namespace}
 data:
   config.yaml: |
-${indented_config}
+${config_lines}
 EOF
+    fi
     
+    # Cleanup temp file after successful YAML generation
+    # Note: The file is only needed during oc create, so it's safe to delete now
     rm -f "$tmp_config"
 }
 
@@ -533,11 +644,49 @@ deploy_generators() {
     
     # Generate and deploy query generator ConfigMap with load-specific QPS
     log_info "Generating query generator ConfigMap with QPS: $query_qps..."
-    generate_query_configmap "$load_name" "$query_qps" | oc apply -f -
+    local configmap_file
+    configmap_file=$(mktemp --suffix=.yaml)
+    if ! generate_query_configmap "$load_name" "$query_qps" > "$configmap_file"; then
+        log_error "Failed to generate query generator ConfigMap"
+        rm -f "$configmap_file"
+        return 1
+    fi
+    
+    # Apply the ConfigMap from file
+    local apply_error
+    if ! apply_error=$(oc apply -f "$configmap_file" 2>&1); then
+        log_error "Failed to apply query generator ConfigMap"
+        log_error "Error: $apply_error"
+        log_error "ConfigMap file content:"
+        cat "$configmap_file" >&2
+        rm -f "$configmap_file"
+        return 1
+    fi
+    rm -f "$configmap_file"
+    
+    # Verify ConfigMap was created with correct targetQPS value
+    log_info "Verifying ConfigMap contains correct targetQPS..."
+    local cm_qps
+    cm_qps=$(oc get configmap query-load-config -n "$PERF_TEST_NAMESPACE" -o jsonpath='{.data.config\.yaml}' 2>/dev/null | yq eval '.query.targetQPS' - 2>/dev/null || echo "")
+    if [ -z "$cm_qps" ] || [ "$cm_qps" = "null" ] || [ "$cm_qps" = "0" ]; then
+        log_error "ConfigMap verification failed: targetQPS is '$cm_qps' (expected: $query_qps)"
+        log_error "ConfigMap contents:"
+        oc get configmap query-load-config -n "$PERF_TEST_NAMESPACE" -o yaml 2>/dev/null | grep -A 5 "targetQPS" || true
+        return 1
+    fi
+    
+    # Compare values (handle floating point comparison)
+    if [ "$(echo "$cm_qps == $query_qps" | bc 2>/dev/null || echo "0")" != "1" ]; then
+        log_warn "ConfigMap targetQPS ($cm_qps) differs from expected ($query_qps), but continuing..."
+    else
+        log_info "ConfigMap verified: targetQPS = $cm_qps"
+    fi
     
     # Deploy query generator deployment
+    # Apply only RBAC and Deployment resources (skip ConfigMap which is generated dynamically)
     log_info "Deploying query generator..."
-    oc apply -f "${PROJECT_ROOT}/generators/query-generator/manifests/deployment.yaml"
+    yq eval 'select(.kind == "Deployment" or .kind == "Role" or .kind == "RoleBinding" or .kind == "ClusterRole" or .kind == "ClusterRoleBinding" or .kind == "ServiceAccount" or .kind == "PodMonitor")' \
+      "${PROJECT_ROOT}/generators/query-generator/manifests/deployment.yaml" | oc apply -f -
     
     # Wait for generators to start
     log_wait "Waiting for generators to start..."
@@ -631,17 +780,20 @@ run_load_test() {
     
     log_section "Load Test [$test_number/$total_tests]: $load_name"
     
-    local description service_count mb_per_sec tps_multiplier calculated_tps parallelism
+    local description service_count mb_per_sec tps_multiplier calculated_tps parallelism query_qps
     description=$(read_load_config "$load_name" "description")
     service_count=$(get_service_count)
     mb_per_sec=$(read_load_config "$load_name" "mb_per_sec")
     tps_multiplier=$(read_load_config "$load_name" "tps_multiplier")
     tps_multiplier=${tps_multiplier:-1}
     parallelism=$(read_load_config "$load_name" "parallelism")
+    query_qps=$(read_load_config "$load_name" "queryQPS")
+    query_qps=${query_qps:-50}
     calculated_tps=$(convert_mb_to_tps "$mb_per_sec" "$tps_multiplier")
     log_info "Description: $description"
     log_info "Target rate: ${mb_per_sec} MB/s (${calculated_tps} TPS × ${parallelism} replicas across $service_count services)"
     log_info "TPS multiplier: ${tps_multiplier}x (empirical adjustment)"
+    log_info "Target QPS: ${query_qps}"
     log_info "Duration: $duration"
     
     # Reset Tempo state if --fresh flag is set
@@ -668,11 +820,11 @@ run_load_test() {
     "${SCRIPT_DIR}/collect-metrics.sh" "$load_name" "$raw_output" "$duration_min"
     
     # Add config info to the raw output (mb_per_sec is the primary metric now)
-    # Update JSON with config
+    # Update JSON with config (including target_qps for QPS comparison charts)
     local tmp_file
     tmp_file=$(mktemp)
-    jq --arg mb_per_sec "$mb_per_sec" --arg dur "$duration_min" \
-        '. + {config: {mb_per_sec: ($mb_per_sec | tonumber), duration_minutes: ($dur | tonumber)}}' \
+    jq --arg mb_per_sec "$mb_per_sec" --arg dur "$duration_min" --arg target_qps "$query_qps" \
+        '. + {config: {mb_per_sec: ($mb_per_sec | tonumber), duration_minutes: ($dur | tonumber), target_qps: ($target_qps | tonumber)}}' \
         "$raw_output" > "$tmp_file" && mv "$tmp_file" "$raw_output"
     
     # Cleanup generators (unless --keep-generators)

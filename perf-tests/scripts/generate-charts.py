@@ -130,6 +130,11 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
         # Calculate GB per day from actual MB/s: MB/s * 86400 seconds/day / 1024 MB/GB
         gb_per_day = mb_per_sec_actual * 86400 / 1024 if mb_per_sec_actual else 0
         
+        # Get actual QPS from query results
+        actual_qps = r.get('metrics', {}).get('query_results', {}).get('actual_qps', 0)
+        # Get target QPS from config
+        target_qps = r.get('config', {}).get('target_qps', 0)
+        
         row = {
             'load_name': r.get('load_name', 'unknown'),
             'mb_per_sec': r.get('config', {}).get('mb_per_sec', 0),  # Target rate from config
@@ -139,6 +144,7 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'p50_ms': r.get('metrics', {}).get('query_latencies', {}).get('p50_seconds', 0) * 1000,
             'p90_ms': r.get('metrics', {}).get('query_latencies', {}).get('p90_seconds', 0) * 1000,
             'p99_ms': r.get('metrics', {}).get('query_latencies', {}).get('p99_seconds', 0) * 1000,
+            'avg_latency_ms': r.get('metrics', {}).get('query_latencies', {}).get('avg_seconds', 0) * 1000,
             'cpu_cores': cpu_cores,
             'cpu_millicores': cpu_cores * 1000,  # Convert to millicores
             'memory_gb': r.get('metrics', {}).get('resources', {}).get('max_memory_gb', 0),
@@ -152,6 +158,8 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'error_rate': r.get('metrics', {}).get('errors', {}).get('error_rate_percent', 0),
             'dropped_spans': r.get('metrics', {}).get('errors', {}).get('dropped_spans_per_second', 0),
             'avg_spans_returned': r.get('metrics', {}).get('query_results', {}).get('avg_spans_returned', 0),
+            'actual_qps': actual_qps,
+            'target_qps': target_qps,
         }
         rows.append(row)
 
@@ -173,6 +181,9 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
         if not timeseries or not timeseries.get('cpu_cores'):
             continue
         
+        # Get target QPS from config for this load
+        target_qps = r.get('config', {}).get('target_qps', 0)
+        
         # Get all timeseries arrays
         cpu_data = {item['timestamp']: item['value'] for item in timeseries.get('cpu_cores', [])}
         memory_data = {item['timestamp']: item['value'] for item in timeseries.get('memory_gb', [])}
@@ -184,6 +195,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
         failures_data = {item['timestamp']: item['value'] for item in timeseries.get('query_failures_per_second', [])}
         dropped_data = {item['timestamp']: item['value'] for item in timeseries.get('dropped_spans_per_second', [])}
         spans_returned_data = {item['timestamp']: item['value'] for item in timeseries.get('avg_spans_returned', [])}
+        qps_data = {item['timestamp']: item['value'] for item in timeseries.get('qps', [])}
         
         # Use CPU timestamps as reference
         for ts in sorted(cpu_data.keys()):
@@ -203,6 +215,8 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
                 'query_failures': failures_data.get(ts, 0),
                 'dropped_spans': dropped_data.get(ts, 0),
                 'avg_spans_returned': spans_returned_data.get(ts, 0),
+                'qps': qps_data.get(ts, 0),
+                'target_qps': target_qps,
             })
     
     if not rows:
@@ -470,6 +484,67 @@ def create_spans_returned_chart(df: pd.DataFrame, output_dir: Path, report_name:
     print(f"  ✅ Created: {output_path}")
 
 
+def create_qps_comparison_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create QPS (queries per second) comparison bar chart showing target vs actual."""
+    # Check if we have QPS data
+    if df['actual_qps'].sum() == 0 and df['target_qps'].sum() == 0:
+        print(f"  ⚠️  No QPS data available, skipping QPS comparison chart")
+        return
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    x = range(len(df))
+    width = 0.35
+
+    bars1 = ax.bar([i - width/2 for i in x], df['target_qps'], width,
+                   label='Target QPS', color=COLORS['quaternary'],
+                   edgecolor='white', linewidth=0.5, alpha=0.7)
+    bars2 = ax.bar([i + width/2 for i in x], df['actual_qps'], width,
+                   label='Actual QPS', color=COLORS['primary'],
+                   edgecolor='white', linewidth=0.5)
+
+    ax.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Queries per Second (QPS)', fontsize=12, fontweight='bold')
+    ax.set_title(f'{report_name}\nQPS: Target vs Actual', fontsize=14, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{row['load_name']}\n({row['mb_per_sec']} MB/s)" for _, row in df.iterrows()])
+    ax.legend(loc='upper left', framealpha=0.9)
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Add efficiency percentage and value labels
+    for i, (_, row) in enumerate(df.iterrows()):
+        # Add value label on target bar
+        if row['target_qps'] > 0:
+            ax.annotate(f'{row["target_qps"]:.1f}',
+                        xy=(i - width/2, row['target_qps']),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9, color=COLORS['text'])
+        
+        # Add value label on actual bar
+        if row['actual_qps'] > 0:
+            ax.annotate(f'{row["actual_qps"]:.2f}',
+                        xy=(i + width/2, row['actual_qps']),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9, color=COLORS['text'])
+        
+        # Add efficiency percentage above
+        if row['target_qps'] > 0:
+            efficiency = (row['actual_qps'] / row['target_qps']) * 100
+            max_val = max(row['target_qps'], row['actual_qps'])
+            ax.annotate(f'{efficiency:.0f}%',
+                        xy=(i, max_val),
+                        xytext=(0, 15), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=10,
+                        color=COLORS['success'] if efficiency >= 90 else COLORS['warning'],
+                        fontweight='bold')
+
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-qps_comparison.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
 def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all static PNG charts."""
     print("\n📊 Generating static charts (PNG)...")
@@ -482,6 +557,7 @@ def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str,
     create_error_chart(df, charts_dir, report_name, timestamp)
     create_bytes_ingested_chart(df, charts_dir, report_name, timestamp)
     create_spans_returned_chart(df, charts_dir, report_name, timestamp)
+    create_qps_comparison_chart(df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -679,6 +755,48 @@ def create_timeseries_spans_returned_chart(ts_df: pd.DataFrame, output_dir: Path
     print(f"  ✅ Created: {output_path}")
 
 
+def create_timeseries_qps_chart(ts_df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create time-series chart showing QPS (actual vs target) over time."""
+    if ts_df.empty:
+        return
+    
+    # Check if we have QPS data
+    if 'qps' not in ts_df.columns or ts_df['qps'].sum() == 0:
+        print(f"  ⚠️  No QPS time-series data available, skipping QPS time-series chart")
+        return
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    loads = ts_df['load_name'].unique()
+    
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        color = LOAD_COLORS[i % len(LOAD_COLORS)]
+        
+        # Plot actual QPS as a solid line
+        ax.plot(load_data['minute'], load_data['qps'], 
+               label=f'{load} (Actual)', color=color,
+               linewidth=2, marker='o', markersize=3)
+        
+        # Plot target QPS as a dashed horizontal line if available
+        target_qps = load_data['target_qps'].iloc[0] if 'target_qps' in load_data.columns else 0
+        if target_qps > 0:
+            ax.axhline(y=target_qps, color=color, linestyle='--', linewidth=1.5, alpha=0.6,
+                      label=f'{load} (Target: {target_qps:.0f})')
+    
+    ax.set_ylabel('Queries per Second (QPS)', fontsize=11, fontweight='bold')
+    ax.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax.set_title(f'{report_name}\nQPS: Actual vs Target Over Time', fontsize=12, fontweight='bold')
+    ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-timeseries_qps.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
 def extract_per_container_data(results: list[dict[str, Any]]) -> pd.DataFrame:
     """Extract per-container time-series data from test results into a DataFrame."""
     rows = []
@@ -861,6 +979,7 @@ def generate_timeseries_charts(ts_df: pd.DataFrame, output_dir: Path, report_nam
         create_timeseries_throughput_chart(ts_df, charts_dir, report_name, timestamp)
         create_timeseries_errors_chart(ts_df, charts_dir, report_name, timestamp)
         create_timeseries_spans_returned_chart(ts_df, charts_dir, report_name, timestamp)
+        create_timeseries_qps_chart(ts_df, charts_dir, report_name, timestamp)
     
     # Generate per-container charts if data is available
     if results:
@@ -1215,6 +1334,12 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
         lambda row: (row['mb_per_sec_actual'] / row['mb_per_sec'] * 100) if row['mb_per_sec'] > 0 else 0,
         axis=1
     ).round(1)
+    
+    # Calculate QPS efficiency (target vs actual)
+    df['qps_efficiency'] = df.apply(
+        lambda row: (row['actual_qps'] / row['target_qps'] * 100) if row['target_qps'] > 0 else 0,
+        axis=1
+    ).round(1)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1300,13 +1425,16 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>P50 (ms)</th>
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
+                    <th>Avg (ms)</th>
                     <th>Sustained CPU (m)</th>
                     <th>Peak Memory</th>
-                    <th>Rec. CPU (30%) (m)</th>
-                    <th>Rec. Memory (30%)</th>
+                    <th>Rec. CPU (20%) (m)</th>
+                    <th>Rec. Memory (20%)</th>
                     <th>Spans/sec</th>
                     <th>Efficiency</th>
                     <th>Error Rate</th>
+                    <th>Target QPS</th>
+                    <th>Actual QPS</th>
                 </tr>
             </thead>
             <tbody>
@@ -1315,6 +1443,12 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
     for _, row in df.iterrows():
         eff_class = 'metric-good' if row['efficiency'] >= 90 else ('metric-warn' if row['efficiency'] >= 70 else 'metric-bad')
         err_class = 'metric-good' if row['error_rate'] < 1 else ('metric-warn' if row['error_rate'] < 5 else 'metric-bad')
+        qps_eff_class = ''
+        if row['target_qps'] > 0:
+            qps_eff_class = 'metric-good' if row['qps_efficiency'] >= 90 else ('metric-warn' if row['qps_efficiency'] >= 70 else 'metric-bad')
+        
+        # Format target QPS
+        target_qps_str = f"{row['target_qps']:.1f}" if row['target_qps'] > 0 else 'N/A'
 
         html_content += f"""                <tr>
                     <td><strong>{row['load_name']}</strong></td>
@@ -1324,6 +1458,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['p50_ms']:.1f}</td>
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
+                    <td>{row['avg_latency_ms']:.1f}</td>
                     <td>{row['sustained_cpu_millicores']:.0f}</td>
                     <td>{row['peak_memory_gb']:.2f} GB</td>
                     <td class="metric-rec">{row['recommended_cpu_millicores']:.0f}</td>
@@ -1331,12 +1466,14 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['spans_per_sec']:.0f}</td>
                     <td class="{eff_class}">{row['efficiency']:.1f}%</td>
                     <td class="{err_class}">{row['error_rate']:.2f}%</td>
+                    <td>{target_qps_str}</td>
+                    <td class="{qps_eff_class}">{row['actual_qps']:.2f}</td>
                 </tr>
 """
 
     html_content += """            </tbody>
         </table>
-        <p class="footer">Generated by Tempo Performance Test Framework (Resource recommendations include 30% safety margin)</p>
+        <p class="footer">Generated by Tempo Performance Test Framework (Resource recommendations include 20% safety margin)</p>
     </div>
 </body>
 </html>

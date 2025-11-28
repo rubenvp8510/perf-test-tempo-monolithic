@@ -67,7 +67,7 @@ generate_csv() {
         sustained_cpu=$(jq -r '.metrics.resources.sustained_cpu_cores // 0' "$raw_file")
         peak_mem=$(jq -r '.metrics.resources.peak_memory_gb // 0' "$raw_file")
         
-        # Resource recommendations (with 30% safety margin)
+        # Resource recommendations (with 20% safety margin)
         rec_cpu=$(jq -r '.metrics.resource_recommendations.cpu_cores // 0' "$raw_file")
         rec_mem=$(jq -r '.metrics.resource_recommendations.memory_gb // 0' "$raw_file")
         
