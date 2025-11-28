@@ -127,10 +127,14 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
         sustained_cpu_cores = r.get('metrics', {}).get('resources', {}).get('sustained_cpu_cores', 0)
         recommended_cpu_cores = r.get('metrics', {}).get('resource_recommendations', {}).get('cpu_cores', 0)
         
+        # Calculate GB per day from actual MB/s: MB/s * 86400 seconds/day / 1024 MB/GB
+        gb_per_day = mb_per_sec_actual * 86400 / 1024 if mb_per_sec_actual else 0
+        
         row = {
             'load_name': r.get('load_name', 'unknown'),
             'mb_per_sec': r.get('config', {}).get('mb_per_sec', 0),  # Target rate from config
             'mb_per_sec_actual': mb_per_sec_actual,  # Actual measured rate
+            'gb_per_day': gb_per_day,  # Daily data volume in GB
             'bytes_per_sec': bytes_per_sec,
             'p50_ms': r.get('metrics', {}).get('query_latencies', {}).get('p50_seconds', 0) * 1000,
             'p90_ms': r.get('metrics', {}).get('query_latencies', {}).get('p90_seconds', 0) * 1000,
@@ -1112,6 +1116,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>Load</th>
                     <th>Target (MB/s)</th>
                     <th>Actual (MB/s)</th>
+                    <th>GB/day</th>
                     <th>P50 (ms)</th>
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
@@ -1135,6 +1140,7 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td><strong>{row['load_name']}</strong></td>
                     <td>{row['mb_per_sec']:.1f}</td>
                     <td>{row['mb_per_sec_actual']:.2f}</td>
+                    <td>{row['gb_per_day']:.1f}</td>
                     <td>{row['p50_ms']:.1f}</td>
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
