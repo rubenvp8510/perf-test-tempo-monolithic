@@ -1,6 +1,5 @@
-jaeger:
-  queryEndpoint: "http://tempo-simplest-jaegerui:16686"
-  timestampSeconds: false
+tempo:
+  queryEndpoint: "http://tempo-simplest:3200"
 
 namespace: "tempo-perf-test"
 
@@ -9,97 +8,164 @@ query:
   concurrentQueries: 5
 
 timeBuckets:
+  - name: "recent"
+    ageStart: "30s"
+    ageEnd: "2m"
+    weight: 20
   - name: "ingester"
     ageStart: "5m"
     ageEnd: "15m"
-    weight: 40
+    weight: 30
   - name: "backend-1h"
     ageStart: "1h"
     ageEnd: "2h"
-    weight: 60
+    weight: 50
 
 queries:
   # ============================================
-  # Frontend Service Queries (lightweight traces)
+  # Simple Resource Queries
   # ============================================
-  - name: "frontend_limit20"
-    path: "/api/search?limit=20&service=frontend"
-  - name: "frontend_fast_traces"
-    path: "/api/search?maxDuration=50ms&limit=30&service=frontend"
-  - name: "frontend_slow_traces"
-    path: "/api/search?minDuration=100ms&limit=20&service=frontend"
-  - name: "frontend_http_get"
-    path: "/api/search?limit=25&service=frontend&tags=http.method=GET"
+  - name: "resource_service_loadtest"
+    traceql: '{ resource.service.name = "frontend" }'
+  - name: "resource_service_frontend"
+    traceql: '{ resource.service.name = "frontend" }'
+  - name: "resource_service_api_gateway"
+    traceql: '{ resource.service.name = "api-gateway" }'
+  - name: "resource_service_order"
+    traceql: '{ resource.service.name = "order-service" }'
+  - name: "resource_service_payment"
+    traceql: '{ resource.service.name = "payment-service" }'
+  - name: "resource_service_inventory"
+    traceql: '{ resource.service.name = "inventory-service" }'
 
   # ============================================
-  # API Gateway Service Queries (medium complexity)
+  # Span Attribute Queries
   # ============================================
-  - name: "api_gateway_limit30"
-    path: "/api/search?limit=30&service=api-gateway"
-  - name: "api_gateway_limit50"
-    path: "/api/search?limit=50&service=api-gateway"
-  - name: "api_gateway_slow"
-    path: "/api/search?minDuration=200ms&limit=25&service=api-gateway"
-  - name: "api_gateway_duration_range"
-    path: "/api/search?minDuration=100ms&maxDuration=500ms&limit=35&service=api-gateway"
-  - name: "api_gateway_http_post"
-    path: "/api/search?limit=20&service=api-gateway&tags=http.method=POST"
+  - name: "span_http_get"
+    traceql: '{ span.http.method = "GET" }'
+  - name: "span_http_post"
+    traceql: '{ span.http.method = "POST" }'
+  - name: "span_http_status_200"
+    traceql: '{ span.http.status_code = 200 }'
+  - name: "span_http_status_error"
+    traceql: '{ span.http.status_code >= 400 }'
+  - name: "span_http_status_server_error"
+    traceql: '{ span.http.status_code >= 500 }'
 
   # ============================================
-  # Order Service Queries (complex traces)
+  # Duration Intrinsic Queries
   # ============================================
-  - name: "order_service_limit20"
-    path: "/api/search?limit=20&service=order-service"
-  - name: "order_service_limit40"
-    path: "/api/search?limit=40&service=order-service"
-  - name: "order_service_slow"
-    path: "/api/search?minDuration=500ms&limit=30&service=order-service"
-  - name: "order_service_very_slow"
-    path: "/api/search?minDuration=1s&limit=15&service=order-service"
-  - name: "order_service_duration_range"
-    path: "/api/search?minDuration=300ms&maxDuration=800ms&limit=25&service=order-service"
-  - name: "order_service_http_method"
-    path: "/api/search?limit=30&service=order-service&tags=http.method=POST"
+  - name: "duration_gt_100ms"
+    traceql: '{ duration > 100ms }'
+  - name: "duration_gt_500ms"
+    traceql: '{ duration > 500ms }'
+  - name: "duration_gt_1s"
+    traceql: '{ duration > 1s }'
+  - name: "duration_lt_50ms"
+    traceql: '{ duration < 50ms }'
+  - name: "duration_range_100ms_500ms"
+    traceql: '{ duration > 100ms && duration < 500ms }'
+  - name: "duration_range_500ms_2s"
+    traceql: '{ duration > 500ms && duration < 2s }'
 
   # ============================================
-  # Payment Service Queries (critical path)
+  # Status Intrinsic Queries
   # ============================================
-  - name: "payment_service_limit25"
-    path: "/api/search?limit=25&service=payment-service"
-  - name: "payment_service_fast"
-    path: "/api/search?maxDuration=100ms&limit=30&service=payment-service"
-  - name: "payment_service_slow"
-    path: "/api/search?minDuration=300ms&limit=20&service=payment-service"
-  - name: "payment_service_http_post"
-    path: "/api/search?limit=20&service=payment-service&tags=http.method=POST"
+  - name: "status_error"
+    traceql: '{ status = error }'
+  - name: "status_ok"
+    traceql: '{ status = ok }'
+  - name: "status_unset"
+    traceql: '{ status = unset }'
 
   # ============================================
-  # Inventory Service Queries (medium complexity)
+  # Kind Intrinsic Queries
   # ============================================
-  - name: "inventory_service_limit30"
-    path: "/api/search?limit=30&service=inventory-service"
-  - name: "inventory_service_limit50"
-    path: "/api/search?limit=50&service=inventory-service"
-  - name: "inventory_service_slow"
-    path: "/api/search?minDuration=400ms&limit=25&service=inventory-service"
-  - name: "inventory_service_duration_range"
-    path: "/api/search?minDuration=200ms&maxDuration=600ms&limit=30&service=inventory-service"
+  - name: "kind_server"
+    traceql: '{ kind = server }'
+  - name: "kind_client"
+    traceql: '{ kind = client }'
+  - name: "kind_internal"
+    traceql: '{ kind = internal }'
 
   # ============================================
-  # Cross-Service / Mixed Queries
+  # Name Intrinsic Queries
   # ============================================
-  - name: "all_services_limit100"
-    path: "/api/search?limit=100"
-  - name: "all_services_slow"
-    path: "/api/search?minDuration=500ms&limit=50"
-  - name: "all_services_very_slow"
-    path: "/api/search?minDuration=1s&limit=30"
-  - name: "all_services_fast"
-    path: "/api/search?maxDuration=50ms&limit=50"
-  - name: "all_http_post"
-    path: "/api/search?limit=40&tags=http.method=POST"
-  - name: "all_http_get"
-    path: "/api/search?limit=40&tags=http.method=GET"
-  - name: "all_duration_range"
-    path: "/api/search?minDuration=200ms&maxDuration=700ms&limit=40"
+  - name: "name_http_request"
+    traceql: '{ name = "HTTP GET" }'
+  - name: "name_db_query"
+    traceql: '{ name = "db.query" }'
 
+  # ============================================
+  # Structural Queries - Parent-Child (>>)
+  # ============================================
+  - name: "struct_frontend_to_api"
+    traceql: '{ resource.service.name = "frontend" } >> { resource.service.name = "api-gateway" }'
+  - name: "struct_api_to_order"
+    traceql: '{ resource.service.name = "api-gateway" } >> { resource.service.name = "order-service" }'
+  - name: "struct_order_to_payment"
+    traceql: '{ resource.service.name = "order-service" } >> { resource.service.name = "payment-service" }'
+  - name: "struct_service_to_error"
+    traceql: '{ resource.service.name = "frontend" } >> { status = error }'
+  - name: "struct_get_to_slow"
+    traceql: '{ span.http.method = "GET" } >> { duration > 500ms }'
+  - name: "struct_post_to_error"
+    traceql: '{ span.http.method = "POST" } >> { span.http.status_code >= 400 }'
+
+  # ============================================
+  # Structural Queries - Sibling (~)
+  # ============================================
+  - name: "struct_sibling_http_db"
+    traceql: '{ name = "HTTP GET" } ~ { name = "db.query" }'
+  - name: "struct_sibling_get_post"
+    traceql: '{ span.http.method = "GET" } ~ { span.http.method = "POST" }'
+
+  # ============================================
+  # Complex Logic Queries (&&, ||)
+  # ============================================
+  - name: "logic_service_and_slow"
+    traceql: '{ resource.service.name = "frontend" && duration > 500ms }'
+  - name: "logic_post_and_slow"
+    traceql: '{ span.http.method = "POST" && duration > 200ms }'
+  - name: "logic_get_and_error"
+    traceql: '{ span.http.method = "GET" && status = error }'
+  - name: "logic_service_and_http_error"
+    traceql: '{ resource.service.name = "api-gateway" && span.http.status_code >= 500 }'
+  - name: "logic_or_services"
+    traceql: '{ resource.service.name = "frontend" || resource.service.name = "api-gateway" }'
+  - name: "logic_or_methods"
+    traceql: '{ span.http.method = "PUT" || span.http.method = "DELETE" }'
+  - name: "logic_complex_and_or"
+    traceql: '{ (span.http.method = "POST" || span.http.method = "PUT") && duration > 100ms }'
+
+  # ============================================
+  # Negation Queries (!=)
+  # ============================================
+  - name: "negation_not_options"
+    traceql: '{ span.http.method != "OPTIONS" }'
+  - name: "negation_not_ok"
+    traceql: '{ status != ok }'
+  - name: "negation_not_200"
+    traceql: '{ span.http.status_code != 200 }'
+
+  # ============================================
+  # Aggregate Select Queries
+  # ============================================
+  - name: "select_http_status"
+    traceql: '{ } | select(span.http.status_code)'
+  - name: "select_service_name"
+    traceql: '{ } | select(resource.service.name)'
+  - name: "select_duration"
+    traceql: '{ duration > 100ms } | select(duration)'
+  - name: "select_method_status"
+    traceql: '{ span.http.method = "GET" } | select(span.http.status_code)'
+
+  # ============================================
+  # Combined Complex Queries
+  # ============================================
+  - name: "complex_service_slow_error"
+    traceql: '{ resource.service.name = "order-service" && duration > 1s && status = error }'
+  - name: "complex_struct_with_duration"
+    traceql: '{ resource.service.name = "frontend" && duration < 100ms } >> { duration > 500ms }'
+  - name: "complex_http_chain"
+    traceql: '{ span.http.method = "POST" && span.http.status_code = 200 } >> { span.http.status_code >= 500 }'

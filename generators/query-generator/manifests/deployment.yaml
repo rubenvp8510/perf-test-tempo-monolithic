@@ -97,9 +97,8 @@ metadata:
   namespace: tempo-perf-test
 data:
   config.yaml: |
-    jaeger:
-      queryEndpoint: "http://tempo-simplest-jaegerui:16686"
-      timestampSeconds: false
+    tempo:
+      queryEndpoint: "http://tempo-simplest:3200"
 
     namespace: "tempo-perf-test"
 
@@ -110,48 +109,93 @@ data:
     timeBuckets:
       - name: "recent"
         ageStart: "30s"
-        ageEnd: "5m"
-        weight: 30
+        ageEnd: "2m"
+        weight: 20
       - name: "ingester"
         ageStart: "5m"
         ageEnd: "15m"
-        weight: 35
+        weight: 30
       - name: "backend-1h"
         ageStart: "1h"
         ageEnd: "2h"
-        weight: 35
+        weight: 50
 
     queries:
-      - name: "loadtest_limit20"
-        path: "/api/search?limit=20&maxDuration&minDuration&service=loadtest"
-      - name: "loadtest_limit30"
-        path: "/api/search?limit=30&maxDuration&minDuration&service=loadtest"
-      - name: "loadtest_limit50"
-        path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest"
-      - name: "loadtest_one_tag"
-        path: "/api/search?limit=50&maxDuration&minDuration&service=loadtest&tags=http.url=\"http://spanFiller3/3\""
-      - name: "loadtest_slow_traces"
-        path: "/api/search?minDuration=500ms&limit=30&service=loadtest"
-      - name: "loadtest_very_slow"
-        path: "/api/search?minDuration=1s&limit=20&service=loadtest"
-      - name: "loadtest_fast_traces"
-        path: "/api/search?maxDuration=100ms&limit=40&service=loadtest"
-      - name: "loadtest_medium_duration"
-        path: "/api/search?minDuration=200ms&maxDuration=800ms&limit=25&service=loadtest"
-      - name: "loadtest_http_method"
-        path: "/api/search?limit=30&service=loadtest&tags=http.method=POST"
-      - name: "loadtest_multi_tag"
-        path: "/api/search?limit=20&service=loadtest&tags=http.method=GET"
-      - name: "loadtest_large_limit"
-        path: "/api/search?limit=100&service=loadtest"
-      - name: "loadtest_small_limit"
-        path: "/api/search?limit=10&service=loadtest"
-      - name: "loadtest_span_name"
-        path: "/api/search?limit=25&service=loadtest"
-      - name: "loadtest_duration_range"
-        path: "/api/search?minDuration=300ms&maxDuration=700ms&limit=35&service=loadtest"
-      - name: "loadtest_limit15"
-        path: "/api/search?limit=15&service=loadtest"
+      # Simple Resource Queries
+      - name: "resource_service_loadtest"
+        traceql: '{ resource.service.name = "frontend" }'
+      - name: "resource_service_frontend"
+        traceql: '{ resource.service.name = "frontend" }'
+      - name: "resource_service_api_gateway"
+        traceql: '{ resource.service.name = "api-gateway" }'
+
+      # Span Attribute Queries
+      - name: "span_http_get"
+        traceql: '{ span.http.method = "GET" }'
+      - name: "span_http_post"
+        traceql: '{ span.http.method = "POST" }'
+      - name: "span_http_status_error"
+        traceql: '{ span.http.status_code >= 400 }'
+
+      # Duration Intrinsic Queries
+      - name: "duration_gt_100ms"
+        traceql: '{ duration > 100ms }'
+      - name: "duration_gt_500ms"
+        traceql: '{ duration > 500ms }'
+      - name: "duration_gt_1s"
+        traceql: '{ duration > 1s }'
+      - name: "duration_range_100ms_500ms"
+        traceql: '{ duration > 100ms && duration < 500ms }'
+
+      # Status Intrinsic Queries
+      - name: "status_error"
+        traceql: '{ status = error }'
+      - name: "status_ok"
+        traceql: '{ status = ok }'
+
+      # Kind Intrinsic Queries
+      - name: "kind_server"
+        traceql: '{ kind = server }'
+      - name: "kind_client"
+        traceql: '{ kind = client }'
+
+      # Structural Queries - Parent-Child
+      - name: "struct_frontend_to_api"
+        traceql: '{ resource.service.name = "frontend" } >> { resource.service.name = "api-gateway" }'
+      - name: "struct_service_to_error"
+        traceql: '{ resource.service.name = "frontend" } >> { status = error }'
+      - name: "struct_get_to_slow"
+        traceql: '{ span.http.method = "GET" } >> { duration > 500ms }'
+
+      # Structural Queries - Sibling
+      - name: "struct_sibling_get_post"
+        traceql: '{ span.http.method = "GET" } ~ { span.http.method = "POST" }'
+
+      # Complex Logic Queries
+      - name: "logic_service_and_slow"
+        traceql: '{ resource.service.name = "frontend" && duration > 500ms }'
+      - name: "logic_post_and_slow"
+        traceql: '{ span.http.method = "POST" && duration > 200ms }'
+      - name: "logic_or_services"
+        traceql: '{ resource.service.name = "frontend" || resource.service.name = "api-gateway" }'
+
+      # Negation Queries
+      - name: "negation_not_options"
+        traceql: '{ span.http.method != "OPTIONS" }'
+      - name: "negation_not_ok"
+        traceql: '{ status != ok }'
+
+      # Aggregate Select Queries
+      - name: "select_http_status"
+        traceql: '{ } | select(span.http.status_code)'
+      - name: "select_duration"
+        traceql: '{ duration > 100ms } | select(duration)'
+
+      # Combined Complex Queries
+      - name: "complex_service_slow_error"
+        traceql: '{ resource.service.name = "order-service" && duration > 1s && status = error }'
+      - name: "complex_struct_with_duration"
+        traceql: '{ resource.service.name = "frontend" && duration < 100ms } >> { duration > 500ms }'
 ---
 apiVersion: apps/v1
 kind: Deployment

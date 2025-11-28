@@ -36,22 +36,31 @@ var (
 	spansReturnedHist *prometheus.HistogramVec
 )
 
-// JaegerSearchResponse represents the response from Jaeger /api/search endpoint
-type JaegerSearchResponse struct {
-	Data []struct {
-		TraceID string `json:"traceID"`
-		Spans   []struct {
-			SpanID string `json:"spanID"`
-		} `json:"spans"`
-	} `json:"data"`
+// TempoSearchResponse represents the response from Tempo /api/search endpoint
+type TempoSearchResponse struct {
+	Traces []struct {
+		TraceID  string `json:"traceID"`
+		SpanSets []struct {
+			Spans []struct {
+				SpanID string `json:"spanID"`
+			} `json:"spans"`
+			Matched int `json:"matched"`
+		} `json:"spanSets"`
+		// For non-structural queries, spans may be at trace level
+		SpanSet *struct {
+			Spans []struct {
+				SpanID string `json:"spanID"`
+			} `json:"spans"`
+			Matched int `json:"matched"`
+		} `json:"spanSet,omitempty"`
+	} `json:"traces"`
 }
 
 // Config represents the YAML configuration structure
 type Config struct {
-	Jaeger struct {
-		QueryEndpoint    string `yaml:"queryEndpoint"`
-		TimestampSeconds bool   `yaml:"timestampSeconds"`
-	} `yaml:"jaeger"`
+	Tempo struct {
+		QueryEndpoint string `yaml:"queryEndpoint"`
+	} `yaml:"tempo"`
 	Namespace string `yaml:"namespace"`
 	Query     struct {
 		Delay             string `yaml:"delay"`
@@ -64,8 +73,8 @@ type Config struct {
 		Weight   int    `yaml:"weight"`
 	} `yaml:"timeBuckets"`
 	Queries []struct {
-		Name string `yaml:"name"`
-		Path string `yaml:"path"`
+		Name    string `yaml:"name"`
+		TraceQL string `yaml:"traceql"`
 	} `yaml:"queries"`
 }
 
@@ -257,10 +266,9 @@ func main() {
 		qs := queryExecutor{
 			name:          q.Name,
 			namespace:     config.Namespace,
-			queryEndpoint: config.Jaeger.QueryEndpoint,
-			query:         q.Path,
+			queryEndpoint: config.Tempo.QueryEndpoint,
+			traceQL:       q.TraceQL,
 			delay:         queryDelay,
-			tsInSeconds:   config.Jaeger.TimestampSeconds,
 			timeBuckets:   timeBuckets,
 			concurrency:   concurrentQueries,
 		}
@@ -277,8 +285,7 @@ type queryExecutor struct {
 	name          string
 	namespace     string
 	queryEndpoint string
-	query         string
-	tsInSeconds   bool
+	traceQL       string
 	delay         time.Duration
 	timeBuckets   []timeBucket
 	concurrency   int
@@ -317,37 +324,38 @@ func (queryExecutor queryExecutor) run() error {
 			for range ticker.C {
 				// Select a time bucket for this query (only from eligible buckets based on elapsed time)
 				bucket := selectTimeBucket(queryExecutor.timeBuckets, testStartTime)
+				
+				// Determine bucket name for metrics (use "immediate" if no bucket selected)
+				bucketName := "immediate"
+				var startTime, endTime time.Time
+				var startTimeStamp, endTimeStamp string
+				
 				if bucket == nil {
-					log.Printf("[worker-%d] No eligible time buckets yet (test running for %v), skipping", id, time.Since(testStartTime))
-					ticker.Reset(queryExecutor.delay)
-					continue
-				}
+					log.Printf("[worker-%d] No eligible time buckets yet (test running for %v), querying immediate data", id, time.Since(testStartTime))
+					// Query without time range for immediate data
+				} else {
+					bucketName = bucket.name
+					// Calculate time range based on bucket
+					now := time.Now()
+					endTime = now.Add(-bucket.ageStart)
+					startTime = now.Add(-bucket.ageEnd)
 
-				// Calculate time range based on bucket
-				now := time.Now()
-				endTime := now.Add(-bucket.ageStart)
-				startTime := now.Add(-bucket.ageEnd)
+					// Add some randomization within the bucket
+					jitter := time.Duration(rand.Int63n(int64(bucket.ageEnd - bucket.ageStart)))
+					endTime = endTime.Add(-jitter)
+					startTime = startTime.Add(-jitter)
 
-				// Add some randomization within the bucket
-				jitter := time.Duration(rand.Int63n(int64(bucket.ageEnd - bucket.ageStart)))
-				endTime = endTime.Add(-jitter)
-				startTime = startTime.Add(-jitter)
-
-				var endTimeStamp, startTimeStamp string
-				if queryExecutor.tsInSeconds {
+					// Tempo uses Unix seconds for timestamps
 					endTimeStamp = fmt.Sprintf("%d", endTime.Unix())
 					startTimeStamp = fmt.Sprintf("%d", startTime.Unix())
-				} else {
-					endTimeStamp = fmt.Sprintf("%d", endTime.UnixMicro())
-					startTimeStamp = fmt.Sprintf("%d", startTime.UnixMicro())
 				}
 
-				// Create a new request for each query
-				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", queryExecutor.queryEndpoint, queryExecutor.query), nil)
+				// Create a new request for Tempo TraceQL search
+				req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/search", queryExecutor.queryEndpoint), nil)
 				if err != nil {
 					log.Printf("[worker-%d] error creating http request: %v", id, err)
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
-					bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
+					bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
 					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
@@ -356,57 +364,75 @@ func (queryExecutor queryExecutor) run() error {
 					req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", string(token)))
 				}
 
-				q := req.URL.Query()
-				q.Set("end", endTimeStamp)
-				q.Set("start", startTimeStamp)
-				req.URL.RawQuery = q.Encode()
+				queryParams := req.URL.Query()
+				queryParams.Set("q", queryExecutor.traceQL)
+				// Only add time range parameters if bucket is available
+				if bucket != nil {
+					queryParams.Set("start", startTimeStamp)
+					queryParams.Set("end", endTimeStamp)
+				}
+				queryParams.Set("limit", "1000")
+				req.URL.RawQuery = queryParams.Encode()
 
 				start := time.Now()
 				res, err := client.Do(req)
 				if err != nil {
 					log.Printf("[worker-%d] error making http request: %v", id, err)
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
-					bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
+					bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
 					ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
 					continue
 				}
 
 				queryDuration := time.Since(start).Seconds()
 				queryLatencyHist.WithLabelValues(queryName).Observe(queryDuration)
-				bucketDurationHist.WithLabelValues(bucket.name, queryName).Observe(queryDuration)
-				bucketQueryCounter.WithLabelValues(bucket.name, queryName).Inc()
+				bucketDurationHist.WithLabelValues(bucketName, queryName).Observe(queryDuration)
+				bucketQueryCounter.WithLabelValues(bucketName, queryName).Inc()
 
 				if res.StatusCode >= 300 {
 					queryFailuresCounter.WithLabelValues(queryName).Inc()
-					log.Printf("[worker-%d] Query failed [%s]: req: %v, status: %d\n", id, bucket.name, req.URL.RawQuery, res.StatusCode)
+					log.Printf("[worker-%d] Query failed [%s]: req: %v, status: %d\n", id, bucketName, req.URL.RawQuery, res.StatusCode)
 					res.Body.Close()
-			} else {
-				// Read and parse response to count spans
-				body, err := io.ReadAll(res.Body)
-				res.Body.Close()
-
-				var spansCount int
-				if err != nil {
-					log.Printf("[worker-%d] error reading response body: %v", id, err)
 				} else {
-					var searchResp JaegerSearchResponse
-					if err := json.Unmarshal(body, &searchResp); err != nil {
-						log.Printf("[worker-%d] error parsing response JSON: %v", id, err)
+					// Read and parse response to count spans
+					body, err := io.ReadAll(res.Body)
+					res.Body.Close()
+
+					var spansCount int
+					if err != nil {
+						log.Printf("[worker-%d] error reading response body: %v", id, err)
 					} else {
-						// Count total spans across all traces
-						for _, trace := range searchResp.Data {
-							spansCount += len(trace.Spans)
+						var searchResp TempoSearchResponse
+						if err := json.Unmarshal(body, &searchResp); err != nil {
+							log.Printf("[worker-%d] error parsing response JSON: %v", id, err)
+						} else {
+							// Count total spans across all traces (Tempo format)
+							for _, trace := range searchResp.Traces {
+								// Check SpanSets (for structural queries)
+								for _, spanSet := range trace.SpanSets {
+									spansCount += len(spanSet.Spans)
+								}
+								// Check SpanSet (for non-structural queries)
+								if trace.SpanSet != nil {
+									spansCount += len(trace.SpanSet.Spans)
+								}
+							}
 						}
 					}
+
+					// Always record spans returned metric (0 if parsing failed, actual count otherwise)
+					spansReturnedHist.WithLabelValues(queryName).Observe(float64(spansCount))
+
+					// Format log message with or without time range
+					if bucket != nil {
+						log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d, timeRange: %s to %s\n",
+							id, bucketName, queryExecutor.name, queryDuration, res.StatusCode, spansCount,
+							startTime.Format("15:04:05"), endTime.Format("15:04:05"))
+					} else {
+						log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d (immediate data, no time range)\n",
+							id, bucketName, queryExecutor.name, queryDuration, res.StatusCode, spansCount)
+					}
 				}
-
-				// Always record spans returned metric (0 if parsing failed, actual count otherwise)
-				spansReturnedHist.WithLabelValues(queryName).Observe(float64(spansCount))
-
-				log.Printf("[worker-%d] [%s] %s took %.3f seconds --> status: %d, spans: %d, timeRange: %s to %s\n",
-					id, bucket.name, queryExecutor.name, queryDuration, res.StatusCode, spansCount,
-					startTime.Format("15:04:05"), endTime.Format("15:04:05"))
-			}
 
 				// Reset ticker with random delay
 				ticker.Reset(time.Duration(rand.Int63n(int64(queryExecutor.delay))))
