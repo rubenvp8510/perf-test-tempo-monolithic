@@ -171,3 +171,136 @@ queries:
     traceql: '{ resource.service.name = "frontend" && duration < 100ms } >> { duration > 500ms }'
   - name: "complex_http_chain"
     traceql: '{ span.http.method = "POST" && span.http.status_code = 200 } >> { span.http.status_code >= 500 }'
+
+# ============================================
+# Execution Plan
+# ============================================
+# Define the query execution pattern here.
+# The generator will cycle through these entries in order.
+# Time ranges are computed dynamically based on buckets.
+# Customize this plan to control query distribution and time bucket usage.
+
+executionPlan:
+  # Resource queries - spread across time buckets
+  - queryName: "resource_service_loadtest"
+    bucketName: "recent"
+  - queryName: "resource_service_frontend"
+    bucketName: "ingester"
+  - queryName: "resource_service_api_gateway"
+    bucketName: "backend-1h"
+  - queryName: "resource_service_order"
+    bucketName: "recent"
+  - queryName: "resource_service_payment"
+    bucketName: "ingester"
+  - queryName: "resource_service_inventory"
+    bucketName: "backend-1h"
+  
+  # HTTP method queries
+  - queryName: "span_http_get"
+    bucketName: "recent"
+  - queryName: "span_http_post"
+    bucketName: "ingester"
+  - queryName: "span_http_status_200"
+    bucketName: "backend-1h"
+  - queryName: "span_http_status_error"
+    bucketName: "recent"
+  - queryName: "span_http_status_server_error"
+    bucketName: "ingester"
+  
+  # Duration queries
+  - queryName: "duration_gt_100ms"
+    bucketName: "backend-1h"
+  - queryName: "duration_gt_500ms"
+    bucketName: "recent"
+  - queryName: "duration_gt_1s"
+    bucketName: "ingester"
+  - queryName: "duration_lt_50ms"
+    bucketName: "backend-1h"
+  - queryName: "duration_range_100ms_500ms"
+    bucketName: "recent"
+  - queryName: "duration_range_500ms_2s"
+    bucketName: "ingester"
+  
+  # Status queries
+  - queryName: "status_error"
+    bucketName: "backend-1h"
+  - queryName: "status_ok"
+    bucketName: "recent"
+  - queryName: "status_unset"
+    bucketName: "ingester"
+  
+  # Kind queries
+  - queryName: "kind_server"
+    bucketName: "backend-1h"
+  - queryName: "kind_client"
+    bucketName: "recent"
+  - queryName: "kind_internal"
+    bucketName: "ingester"
+  
+  # Name queries
+  - queryName: "name_http_request"
+    bucketName: "backend-1h"
+  - queryName: "name_db_query"
+    bucketName: "recent"
+  
+  # Structural queries - parent-child
+  - queryName: "struct_frontend_to_api"
+    bucketName: "ingester"
+  - queryName: "struct_api_to_order"
+    bucketName: "backend-1h"
+  - queryName: "struct_order_to_payment"
+    bucketName: "recent"
+  - queryName: "struct_service_to_error"
+    bucketName: "ingester"
+  - queryName: "struct_get_to_slow"
+    bucketName: "backend-1h"
+  - queryName: "struct_post_to_error"
+    bucketName: "recent"
+  
+  # Structural queries - sibling
+  - queryName: "struct_sibling_http_db"
+    bucketName: "ingester"
+  - queryName: "struct_sibling_get_post"
+    bucketName: "backend-1h"
+  
+  # Complex logic queries
+  - queryName: "logic_service_and_slow"
+    bucketName: "recent"
+  - queryName: "logic_post_and_slow"
+    bucketName: "ingester"
+  - queryName: "logic_get_and_error"
+    bucketName: "backend-1h"
+  - queryName: "logic_service_and_http_error"
+    bucketName: "recent"
+  - queryName: "logic_or_services"
+    bucketName: "ingester"
+  - queryName: "logic_or_methods"
+    bucketName: "backend-1h"
+  - queryName: "logic_complex_and_or"
+    bucketName: "recent"
+  
+  # Negation queries
+  - queryName: "negation_not_options"
+    bucketName: "ingester"
+  - queryName: "negation_not_ok"
+    bucketName: "backend-1h"
+  - queryName: "negation_not_200"
+    bucketName: "recent"
+  
+  # Aggregate select queries
+  - queryName: "select_http_status"
+    bucketName: "ingester"
+  - queryName: "select_service_name"
+    bucketName: "backend-1h"
+  - queryName: "select_duration"
+    bucketName: "recent"
+  - queryName: "select_method_status"
+    bucketName: "ingester"
+  
+  # Complex combined queries
+  - queryName: "complex_service_slow_error"
+    bucketName: "backend-1h"
+  - queryName: "complex_struct_with_duration"
+    bucketName: "recent"
+  - queryName: "complex_http_chain"
+    bucketName: "ingester"

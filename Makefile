@@ -25,9 +25,10 @@ help:
 	@echo "Tempo Performance Test Framework"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make perf-test              Run full performance test suite"
+	@echo "  make perf-test              Run full performance test suite (fresh state by default)"
 	@echo "  make perf-test-quick        Run quick test (5min, low load only)"
-	@echo "  make perf-test-fresh        Run tests with fresh Tempo state each time"
+	@echo "  make perf-test-fresh        Run tests with fresh Tempo state each time (default)"
+	@echo "  make perf-test-keep-state   Run tests keeping existing Tempo state"
 	@echo "  make perf-test-load LOAD=x  Run specific load test"
 	@echo "  make generate-report        Generate reports from existing results"
 	@echo "  make generate-charts        Generate charts from existing results"
@@ -61,10 +62,15 @@ perf-test-quick: ensure-monitoring
 	@echo "Running quick performance test..."
 	./perf-tests/scripts/run-perf-tests.sh -d 5m -l low
 
-# Run full performance test suite with fresh state for each test
+# Run full performance test suite with fresh state for each test (now default)
 perf-test-fresh: ensure-monitoring
-	@echo "Running performance tests with fresh state..."
-	./perf-tests/scripts/run-perf-tests.sh --fresh
+	@echo "Running performance tests with fresh state (default behavior)..."
+	./perf-tests/scripts/run-perf-tests.sh
+
+# Run performance tests keeping existing Tempo state
+perf-test-keep-state: ensure-monitoring
+	@echo "Running performance tests keeping existing Tempo state..."
+	./perf-tests/scripts/run-perf-tests.sh --keep-state
 
 # Run specific load test
 perf-test-load: ensure-monitoring

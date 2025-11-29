@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -38,6 +41,12 @@ var (
 	// Spans returned histogram with query name label
 	spansReturnedHist *prometheus.HistogramVec
 )
+
+// PlanEntry represents a single entry in the execution plan from config
+type PlanEntry struct {
+	QueryName  string `yaml:"queryName"`
+	BucketName string `yaml:"bucketName"`
+}
 
 // TempoSearchResponse represents the response from Tempo /api/search endpoint
 type TempoSearchResponse struct {
@@ -81,6 +90,7 @@ type Config struct {
 		Name    string `yaml:"name"`
 		TraceQL string `yaml:"traceql"`
 	} `yaml:"queries"`
+	ExecutionPlan []PlanEntry `yaml:"executionPlan"` // Execution plan defined in config
 }
 
 // timeBucket defines a time range for queries
@@ -105,6 +115,7 @@ func loadConfig(configPath string) (*Config, error) {
 
 	return &config, nil
 }
+
 
 // convertTimeBuckets converts config time buckets to internal timeBucket struct
 func convertTimeBuckets(configBuckets []struct {
@@ -243,6 +254,8 @@ func formatRequest(req *http.Request) string {
 }
 
 func main() {
+	flag.Parse()
+
 	// Get config file path from environment variable (default to /config/config.yaml)
 	configPath := os.Getenv("CONFIG_FILE")
 	if configPath == "" {
@@ -297,8 +310,31 @@ func main() {
 	perQueryQPS := targetQPS / float64(len(config.Queries))
 	log.Printf("Per-query QPS: %.4f (distributed across %d concurrent workers)", perQueryQPS, concurrentQueries)
 
-	// Seed random number generator
-	rand.Seed(time.Now().UnixNano())
+	// Validate execution plan from config
+	if len(config.ExecutionPlan) == 0 {
+		log.Fatalf("No executionPlan defined in configuration. Please define an execution plan in config.yaml")
+	}
+	
+	log.Printf("Loaded execution plan with %d entries from config", len(config.ExecutionPlan))
+	
+	// Validate plan: count entries per query and check for undefined queries
+	queryDist := make(map[string]int)
+	queryMap := make(map[string]bool)
+	for _, q := range config.Queries {
+		queryMap[q.Name] = true
+	}
+	
+	for _, entry := range config.ExecutionPlan {
+		if !queryMap[entry.QueryName] {
+			log.Fatalf("Execution plan references undefined query: %s", entry.QueryName)
+		}
+		queryDist[entry.QueryName]++
+	}
+	
+	log.Printf("Plan distribution across queries:")
+	for queryName, count := range queryDist {
+		log.Printf("  %s: %d entries (will cycle/repeat as needed)", queryName, count)
+	}
 
 	// Create and start query executors
 	for _, q := range config.Queries {
@@ -312,6 +348,7 @@ func main() {
 			concurrency:   concurrentQueries,
 			tenantID:      config.TenantID,
 			targetQPS:     perQueryQPS,
+			executionPlan: config.ExecutionPlan,
 		}
 		if err := qs.run(); err != nil {
 			log.Fatalf("Could not run query executor: %v", err)
@@ -332,6 +369,25 @@ type queryExecutor struct {
 	concurrency   int
 	tenantID      string
 	targetQPS     float64
+	executionPlan []PlanEntry // Execution plan from config
+}
+
+// planIndices stores atomic counters for each query name to cycle through plan entries
+var planIndices = make(map[string]*int64)
+var planIndicesMutex sync.Mutex
+
+// getPlanIndex returns the atomic counter for a given query name, creating it if needed
+func getPlanIndex(queryName string) *int64 {
+	planIndicesMutex.Lock()
+	defer planIndicesMutex.Unlock()
+	
+	if idx, exists := planIndices[queryName]; exists {
+		return idx
+	}
+	
+	idx := new(int64)
+	planIndices[queryName] = idx
+	return idx
 }
 
 func (queryExecutor queryExecutor) run() error {
@@ -383,32 +439,73 @@ func (queryExecutor queryExecutor) run() error {
 					log.Printf("[worker-%d] Rate limiter error: %v", id, err)
 					return
 				}
-				// Select a time bucket for this query (only from eligible buckets based on elapsed time)
-				bucket := selectTimeBucket(queryExecutor.timeBuckets, testStartTime)
 
-				// Determine bucket name for metrics (use "immediate" if no bucket selected)
+				// Determine bucket name and time range using execution plan from config
 				bucketName := "immediate"
 				var startTime, endTime time.Time
 				var startTimeStamp, endTimeStamp string
+				var bucket *timeBucket
 
-				if bucket == nil {
-					log.Printf("[worker-%d] No eligible time buckets yet (test running for %v), querying immediate data", id, time.Since(testStartTime))
-					// Query without time range for immediate data
+				// Filter plan entries for this query name
+				var matchingEntries []PlanEntry
+				for _, entry := range queryExecutor.executionPlan {
+					if entry.QueryName == queryExecutor.name {
+						matchingEntries = append(matchingEntries, entry)
+					}
+				}
+
+				if len(matchingEntries) > 0 {
+					// Get or create index counter for this query
+					planIdx := getPlanIndex(queryExecutor.name)
+					idx := atomic.AddInt64(planIdx, 1) - 1
+					entryIdx := int(idx) % len(matchingEntries) // Cycle through matching entries - repeats when exhausted
+					entry := matchingEntries[entryIdx]
+					
+					// Log when we've cycled through all entries once
+					if idx > 0 && idx % int64(len(matchingEntries)) == 0 {
+						log.Printf("[worker-%d] Query '%s': Cycled through all %d plan entries, repeating from start (cycle: %d)", 
+							id, queryExecutor.name, len(matchingEntries), idx / int64(len(matchingEntries)))
+					}
+
+					bucketName = entry.BucketName
+					if bucketName != "immediate" {
+						// Find the bucket by name
+						for i := range queryExecutor.timeBuckets {
+							if queryExecutor.timeBuckets[i].name == bucketName {
+								bucket = &queryExecutor.timeBuckets[i]
+								break
+							}
+						}
+
+						if bucket != nil {
+							// Check if bucket is eligible based on elapsed time
+							elapsed := time.Since(testStartTime)
+							if bucket.ageEnd <= elapsed {
+								// Calculate time range dynamically with random jitter within bucket
+								now := time.Now()
+								bucketRange := bucket.ageEnd - bucket.ageStart
+								jitter := time.Duration(0)
+								if bucketRange > 0 {
+									jitter = time.Duration(rand.Int63n(int64(bucketRange)))
+								}
+								endTime = now.Add(-bucket.ageStart).Add(-jitter)
+								startTime = now.Add(-bucket.ageEnd).Add(-jitter)
+								endTimeStamp = fmt.Sprintf("%d", endTime.Unix())
+								startTimeStamp = fmt.Sprintf("%d", startTime.Unix())
+							} else {
+								// Bucket not eligible yet, use immediate
+								bucket = nil
+								bucketName = "immediate"
+							}
+						} else {
+							// Bucket not found, use immediate
+							bucketName = "immediate"
+							log.Printf("[worker-%d] Warning: Bucket '%s' not found in timeBuckets config, using immediate", id, bucketName)
+						}
+					}
 				} else {
-					bucketName = bucket.name
-					// Calculate time range based on bucket
-					now := time.Now()
-					endTime = now.Add(-bucket.ageStart)
-					startTime = now.Add(-bucket.ageEnd)
-
-					// Add some randomization within the bucket
-					jitter := time.Duration(rand.Int63n(int64(bucket.ageEnd - bucket.ageStart)))
-					endTime = endTime.Add(-jitter)
-					startTime = startTime.Add(-jitter)
-
-					// Tempo uses Unix seconds for timestamps
-					endTimeStamp = fmt.Sprintf("%d", endTime.Unix())
-					startTimeStamp = fmt.Sprintf("%d", startTime.Unix())
+					// No matching entries in plan for this query - this shouldn't happen if config is valid
+					log.Printf("[worker-%d] Warning: No plan entries for query '%s', using immediate bucket", id, queryExecutor.name)
 				}
 
 				// Create a new request for Tempo TraceQL search via gateway

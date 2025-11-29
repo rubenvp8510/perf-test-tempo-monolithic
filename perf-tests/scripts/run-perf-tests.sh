@@ -12,7 +12,7 @@ set -euo pipefail
 #   -l, --load <name>       Run only specific load (can be repeated)
 #   -s, --skip-monitoring   Skip monitoring setup
 #   -k, --keep-generators   Don't cleanup generators between tests
-#   -f, --fresh             Recreate Tempo with clean state before each test
+#   -K, --keep-state        Keep existing Tempo state (default: recreate before each test)
 #   -h, --help              Show this help message
 #
 
@@ -28,7 +28,7 @@ DURATION_OVERRIDE=""
 SPECIFIC_LOADS=()
 SKIP_MONITORING=false
 KEEP_GENERATORS=false
-FRESH_STATE=false
+FRESH_STATE=true
 
 # Namespace configuration
 PERF_TEST_NAMESPACE="tempo-perf-test"
@@ -61,7 +61,7 @@ Options:
   -l, --load <name>       Run only specific load (can be repeated)
   -s, --skip-monitoring   Skip monitoring setup check
   -k, --keep-generators   Don't cleanup generators between tests
-  -f, --fresh             Recreate Tempo with clean state before each test
+  -K, --keep-state        Keep existing Tempo state (default: recreate before each test)
   -h, --help              Show this help message
 
 Examples:
@@ -100,8 +100,8 @@ parse_args() {
                 KEEP_GENERATORS=true
                 shift
                 ;;
-            -f|--fresh)
-                FRESH_STATE=true
+            -K|--keep-state)
+                FRESH_STATE=false
                 shift
                 ;;
             -h|--help)
@@ -432,6 +432,7 @@ generate_trace_job() {
     rm -f "$tmp_template"
 }
 
+
 #
 # Generate query generator ConfigMap with load-specific QPS
 #
@@ -500,7 +501,8 @@ generate_query_configmap() {
          yq eval ".query.concurrentQueries = ${concurrent_queries}" - | \
          yq eval ".tempo.queryEndpoint = \"https://${tempo_host}-gateway:8080\"" - | \
          yq eval ".namespace = \"$namespace\"" - | \
-         yq eval ".tenantId = \"$tenant_id\"" - > "$tmp_config"; then
+         yq eval ".tenantId = \"$tenant_id\"" - | \
+         yq eval ".planFile = \"/plan/plan.yaml\"" - > "$tmp_config"; then
         log_error "Failed to update config values"
         rm -f "$tmp_config"
         return 1
@@ -815,7 +817,8 @@ run_load_test() {
     
     # Extract duration in minutes for time-series query
     local duration_min
-    duration_min=$(($(echo "$duration" | grep -oE '[0-9]+') ))
+    duration_min=$(echo "$duration" | grep -oE '[0-9]+' | head -1)
+    duration_min=${duration_min:-0}
     
     "${SCRIPT_DIR}/collect-metrics.sh" "$load_name" "$raw_output" "$duration_min"
     
@@ -854,8 +857,8 @@ main() {
     check_prerequisites
     ensure_monitoring
     
-    # Only deploy Tempo initially if NOT using fresh state
-    # When fresh state is enabled, deploy happens at the start of each test after cleanup
+    # Only deploy Tempo initially if keeping state (--keep-state flag)
+    # By default (fresh state), Tempo is recreated at the start of each test after cleanup
     if [ "$FRESH_STATE" = false ]; then
         deploy_tempo
     fi
@@ -883,6 +886,7 @@ main() {
     
     local total_tests=${#loads_to_test[@]}
     log_info "Will run $total_tests load test(s): ${loads_to_test[*]}"
+    log_info "Query execution plan is defined in config.yaml (executionPlan section)"
     
     # Run each load test
     local test_number=0

@@ -545,6 +545,265 @@ def create_qps_comparison_chart(df: pd.DataFrame, output_dir: Path, report_name:
     print(f"  ✅ Created: {output_path}")
 
 
+def create_resources_vs_ingestion_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create line plot showing CPU and Memory vs Ingestion Rate (MB/s)."""
+    if df.empty or len(df) < 2:
+        print(f"  ⚠️  Not enough data points for resources vs ingestion chart")
+        return
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # Sort by actual MB/s for proper line plot
+    df_sorted = df.sort_values('mb_per_sec_actual').reset_index(drop=True)
+    
+    # Left plot: CPU vs Ingestion Rate
+    ax1.plot(df_sorted['mb_per_sec_actual'], df_sorted['cpu_millicores'], 
+             color=COLORS['primary'], linewidth=2.5, marker='o', markersize=10,
+             label='Avg CPU', markeredgecolor='white', markeredgewidth=1.5)
+    ax1.plot(df_sorted['mb_per_sec_actual'], df_sorted['sustained_cpu_millicores'], 
+             color=COLORS['tertiary'], linewidth=2, marker='s', markersize=8,
+             label='Sustained CPU', linestyle='--', markeredgecolor='white', markeredgewidth=1)
+    
+    # Add value annotations for CPU
+    for _, row in df_sorted.iterrows():
+        ax1.annotate(f'{row["cpu_millicores"]:.0f}m',
+                    xy=(row['mb_per_sec_actual'], row['cpu_millicores']),
+                    xytext=(5, 8), textcoords="offset points",
+                    ha='left', va='bottom', fontsize=9, color=COLORS['text'],
+                    fontweight='bold')
+        ax1.annotate(f'{row["load_name"]}',
+                    xy=(row['mb_per_sec_actual'], row['cpu_millicores']),
+                    xytext=(5, -15), textcoords="offset points",
+                    ha='left', va='top', fontsize=8, color=COLORS['quaternary'])
+    
+    ax1.set_xlabel('Ingestion Rate (MB/s)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('CPU (millicores)', fontsize=12, fontweight='bold')
+    ax1.set_title('CPU Usage vs Ingestion Rate', fontsize=13, fontweight='bold')
+    ax1.legend(loc='upper left', framealpha=0.9)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.set_xlim(left=0)
+    ax1.set_ylim(bottom=0)
+    
+    # Right plot: Memory vs Ingestion Rate
+    ax2.plot(df_sorted['mb_per_sec_actual'], df_sorted['memory_gb'], 
+             color=COLORS['secondary'], linewidth=2.5, marker='o', markersize=10,
+             label='Max Memory', markeredgecolor='white', markeredgewidth=1.5)
+    ax2.plot(df_sorted['mb_per_sec_actual'], df_sorted['peak_memory_gb'], 
+             color=COLORS['accent'], linewidth=2, marker='s', markersize=8,
+             label='Peak Memory', linestyle='--', markeredgecolor='white', markeredgewidth=1)
+    
+    # Add value annotations for Memory
+    for _, row in df_sorted.iterrows():
+        ax2.annotate(f'{row["memory_gb"]:.2f}GB',
+                    xy=(row['mb_per_sec_actual'], row['memory_gb']),
+                    xytext=(5, 8), textcoords="offset points",
+                    ha='left', va='bottom', fontsize=9, color=COLORS['text'],
+                    fontweight='bold')
+        ax2.annotate(f'{row["load_name"]}',
+                    xy=(row['mb_per_sec_actual'], row['memory_gb']),
+                    xytext=(5, -15), textcoords="offset points",
+                    ha='left', va='top', fontsize=8, color=COLORS['quaternary'])
+    
+    ax2.set_xlabel('Ingestion Rate (MB/s)', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Memory (GB)', fontsize=12, fontweight='bold')
+    ax2.set_title('Memory Usage vs Ingestion Rate', fontsize=13, fontweight='bold')
+    ax2.legend(loc='upper left', framealpha=0.9)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    ax2.set_xlim(left=0)
+    ax2.set_ylim(bottom=0)
+    
+    plt.suptitle(f'{report_name}\nResource Scaling vs Ingestion Rate', 
+                 fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-resources_vs_ingestion.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_resources_vs_qps_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create line plot showing CPU and Memory vs QPS."""
+    # Check if we have QPS data
+    if df['actual_qps'].sum() == 0:
+        print(f"  ⚠️  No QPS data available, skipping resources vs QPS chart")
+        return
+    
+    if df.empty or len(df) < 2:
+        print(f"  ⚠️  Not enough data points for resources vs QPS chart")
+        return
+    
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # Sort by actual QPS for proper line plot
+    df_sorted = df.sort_values('actual_qps').reset_index(drop=True)
+    
+    # Left plot: CPU vs QPS
+    ax1.plot(df_sorted['actual_qps'], df_sorted['cpu_millicores'], 
+             color=COLORS['primary'], linewidth=2.5, marker='o', markersize=10,
+             label='Avg CPU', markeredgecolor='white', markeredgewidth=1.5)
+    ax1.plot(df_sorted['actual_qps'], df_sorted['sustained_cpu_millicores'], 
+             color=COLORS['tertiary'], linewidth=2, marker='s', markersize=8,
+             label='Sustained CPU', linestyle='--', markeredgecolor='white', markeredgewidth=1)
+    
+    # Add value annotations for CPU
+    for _, row in df_sorted.iterrows():
+        ax1.annotate(f'{row["cpu_millicores"]:.0f}m',
+                    xy=(row['actual_qps'], row['cpu_millicores']),
+                    xytext=(5, 8), textcoords="offset points",
+                    ha='left', va='bottom', fontsize=9, color=COLORS['text'],
+                    fontweight='bold')
+        ax1.annotate(f'{row["load_name"]}',
+                    xy=(row['actual_qps'], row['cpu_millicores']),
+                    xytext=(5, -15), textcoords="offset points",
+                    ha='left', va='top', fontsize=8, color=COLORS['quaternary'])
+    
+    ax1.set_xlabel('Queries per Second (QPS)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('CPU (millicores)', fontsize=12, fontweight='bold')
+    ax1.set_title('CPU Usage vs QPS', fontsize=13, fontweight='bold')
+    ax1.legend(loc='upper left', framealpha=0.9)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.set_xlim(left=0)
+    ax1.set_ylim(bottom=0)
+    
+    # Right plot: Memory vs QPS
+    ax2.plot(df_sorted['actual_qps'], df_sorted['memory_gb'], 
+             color=COLORS['secondary'], linewidth=2.5, marker='o', markersize=10,
+             label='Max Memory', markeredgecolor='white', markeredgewidth=1.5)
+    ax2.plot(df_sorted['actual_qps'], df_sorted['peak_memory_gb'], 
+             color=COLORS['accent'], linewidth=2, marker='s', markersize=8,
+             label='Peak Memory', linestyle='--', markeredgecolor='white', markeredgewidth=1)
+    
+    # Add value annotations for Memory
+    for _, row in df_sorted.iterrows():
+        ax2.annotate(f'{row["memory_gb"]:.2f}GB',
+                    xy=(row['actual_qps'], row['memory_gb']),
+                    xytext=(5, 8), textcoords="offset points",
+                    ha='left', va='bottom', fontsize=9, color=COLORS['text'],
+                    fontweight='bold')
+        ax2.annotate(f'{row["load_name"]}',
+                    xy=(row['actual_qps'], row['memory_gb']),
+                    xytext=(5, -15), textcoords="offset points",
+                    ha='left', va='top', fontsize=8, color=COLORS['quaternary'])
+    
+    ax2.set_xlabel('Queries per Second (QPS)', fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Memory (GB)', fontsize=12, fontweight='bold')
+    ax2.set_title('Memory Usage vs QPS', fontsize=13, fontweight='bold')
+    ax2.legend(loc='upper left', framealpha=0.9)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    ax2.set_xlim(left=0)
+    ax2.set_ylim(bottom=0)
+    
+    plt.suptitle(f'{report_name}\nResource Scaling vs Query Load (QPS)', 
+                 fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-resources_vs_qps.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
+def create_combined_scaling_chart(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
+    """Create a combined chart showing resource scaling vs both ingestion and QPS."""
+    if df.empty or len(df) < 2:
+        print(f"  ⚠️  Not enough data points for combined scaling chart")
+        return
+    
+    has_qps = df['actual_qps'].sum() > 0
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # Sort by actual MB/s for ingestion charts
+    df_by_ingestion = df.sort_values('mb_per_sec_actual').reset_index(drop=True)
+    
+    # Top-left: CPU vs Ingestion Rate
+    ax = axes[0, 0]
+    ax.plot(df_by_ingestion['mb_per_sec_actual'], df_by_ingestion['cpu_millicores'], 
+            color=COLORS['primary'], linewidth=2.5, marker='o', markersize=10,
+            markeredgecolor='white', markeredgewidth=1.5)
+    for _, row in df_by_ingestion.iterrows():
+        ax.annotate(f'{row["load_name"]}',
+                   xy=(row['mb_per_sec_actual'], row['cpu_millicores']),
+                   xytext=(5, 5), textcoords="offset points",
+                   ha='left', va='bottom', fontsize=9, color=COLORS['quaternary'])
+    ax.set_xlabel('Ingestion Rate (MB/s)', fontsize=11, fontweight='bold')
+    ax.set_ylabel('CPU (millicores)', fontsize=11, fontweight='bold')
+    ax.set_title('CPU vs Ingestion Rate', fontsize=12, fontweight='bold')
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
+    
+    # Top-right: Memory vs Ingestion Rate
+    ax = axes[0, 1]
+    ax.plot(df_by_ingestion['mb_per_sec_actual'], df_by_ingestion['memory_gb'], 
+            color=COLORS['secondary'], linewidth=2.5, marker='o', markersize=10,
+            markeredgecolor='white', markeredgewidth=1.5)
+    for _, row in df_by_ingestion.iterrows():
+        ax.annotate(f'{row["load_name"]}',
+                   xy=(row['mb_per_sec_actual'], row['memory_gb']),
+                   xytext=(5, 5), textcoords="offset points",
+                   ha='left', va='bottom', fontsize=9, color=COLORS['quaternary'])
+    ax.set_xlabel('Ingestion Rate (MB/s)', fontsize=11, fontweight='bold')
+    ax.set_ylabel('Memory (GB)', fontsize=11, fontweight='bold')
+    ax.set_title('Memory vs Ingestion Rate', fontsize=12, fontweight='bold')
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.set_xlim(left=0)
+    ax.set_ylim(bottom=0)
+    
+    if has_qps:
+        # Sort by actual QPS for QPS charts
+        df_by_qps = df.sort_values('actual_qps').reset_index(drop=True)
+        
+        # Bottom-left: CPU vs QPS
+        ax = axes[1, 0]
+        ax.plot(df_by_qps['actual_qps'], df_by_qps['cpu_millicores'], 
+                color=COLORS['tertiary'], linewidth=2.5, marker='s', markersize=10,
+                markeredgecolor='white', markeredgewidth=1.5)
+        for _, row in df_by_qps.iterrows():
+            ax.annotate(f'{row["load_name"]}',
+                       xy=(row['actual_qps'], row['cpu_millicores']),
+                       xytext=(5, 5), textcoords="offset points",
+                       ha='left', va='bottom', fontsize=9, color=COLORS['quaternary'])
+        ax.set_xlabel('Queries per Second (QPS)', fontsize=11, fontweight='bold')
+        ax.set_ylabel('CPU (millicores)', fontsize=11, fontweight='bold')
+        ax.set_title('CPU vs QPS', fontsize=12, fontweight='bold')
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_xlim(left=0)
+        ax.set_ylim(bottom=0)
+        
+        # Bottom-right: Memory vs QPS
+        ax = axes[1, 1]
+        ax.plot(df_by_qps['actual_qps'], df_by_qps['memory_gb'], 
+                color=COLORS['accent'], linewidth=2.5, marker='s', markersize=10,
+                markeredgecolor='white', markeredgewidth=1.5)
+        for _, row in df_by_qps.iterrows():
+            ax.annotate(f'{row["load_name"]}',
+                       xy=(row['actual_qps'], row['memory_gb']),
+                       xytext=(5, 5), textcoords="offset points",
+                       ha='left', va='bottom', fontsize=9, color=COLORS['quaternary'])
+        ax.set_xlabel('Queries per Second (QPS)', fontsize=11, fontweight='bold')
+        ax.set_ylabel('Memory (GB)', fontsize=11, fontweight='bold')
+        ax.set_title('Memory vs QPS', fontsize=12, fontweight='bold')
+        ax.grid(True, linestyle='--', alpha=0.7)
+        ax.set_xlim(left=0)
+        ax.set_ylim(bottom=0)
+    else:
+        # Hide bottom plots if no QPS data
+        axes[1, 0].set_visible(False)
+        axes[1, 1].set_visible(False)
+        axes[1, 0].text(0.5, 0.5, 'No QPS data available', 
+                        ha='center', va='center', fontsize=12, color=COLORS['text'])
+        axes[1, 1].text(0.5, 0.5, 'No QPS data available', 
+                        ha='center', va='center', fontsize=12, color=COLORS['text'])
+    
+    plt.suptitle(f'{report_name}\nResource Scaling Analysis', 
+                 fontsize=14, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    output_path = output_dir / f'report-{timestamp}-resource_scaling.png'
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  ✅ Created: {output_path}")
+
+
 def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str, timestamp: str) -> None:
     """Generate all static PNG charts."""
     print("\n📊 Generating static charts (PNG)...")
@@ -558,6 +817,11 @@ def generate_static_charts(df: pd.DataFrame, output_dir: Path, report_name: str,
     create_bytes_ingested_chart(df, charts_dir, report_name, timestamp)
     create_spans_returned_chart(df, charts_dir, report_name, timestamp)
     create_qps_comparison_chart(df, charts_dir, report_name, timestamp)
+    
+    # Resource scaling charts (line plots showing resource vs load correlation)
+    create_resources_vs_ingestion_chart(df, charts_dir, report_name, timestamp)
+    create_resources_vs_qps_chart(df, charts_dir, report_name, timestamp)
+    create_combined_scaling_chart(df, charts_dir, report_name, timestamp)
 
 
 # =============================================================================
@@ -1871,6 +2135,7 @@ def main():
     print(f"  📊 Static charts:          {results_dir}/charts/report-{timestamp}-*.png")
     print(f"  📈 Time-series charts:     {results_dir}/charts/report-{timestamp}-timeseries_*.png")
     print(f"  📦 Per-container charts:   {results_dir}/charts/report-{timestamp}-per_container_*.png")
+    print(f"  📉 Resource scaling:       {results_dir}/charts/report-{timestamp}-resource*.png")
     print(f"  🌐 Summary Dashboard:      {results_dir}/dashboard.html")
     print(f"  🌐 Time-Series Dashboard:  {results_dir}/timeseries-dashboard.html")
     print(f"  📋 Summary Table:          {results_dir}/summary.html")
