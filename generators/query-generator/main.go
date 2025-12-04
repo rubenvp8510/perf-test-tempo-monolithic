@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -79,6 +80,9 @@ type Config struct {
 		Delay             string  `yaml:"delay"`
 		ConcurrentQueries int     `yaml:"concurrentQueries"`
 		TargetQPS         float64 `yaml:"targetQPS"`
+		BurstMultiplier   float64 `yaml:"burstMultiplier"` // Multiplier for rate limiter burst size (default: 2.0)
+		QPSMultiplier     float64 `yaml:"qpsMultiplier"`   // Multiplier to apply to targetQPS for compensation (default: 1.0)
+		Limit             int     `yaml:"limit"`           // Maximum number of results to return per query (default: 1000)
 	} `yaml:"query"`
 	TimeBuckets []struct {
 		Name     string `yaml:"name"`
@@ -115,7 +119,6 @@ func loadConfig(configPath string) (*Config, error) {
 
 	return &config, nil
 }
-
 
 // convertTimeBuckets converts config time buckets to internal timeBucket struct
 func convertTimeBuckets(configBuckets []struct {
@@ -291,7 +294,32 @@ func main() {
 	if targetQPS <= 0 {
 		log.Fatalf("targetQPS must be > 0, got: %f", targetQPS)
 	}
-	log.Printf("Target total QPS: %.2f", targetQPS)
+
+	// Apply QPS multiplier if configured (for compensation)
+	qpsMultiplier := config.Query.QPSMultiplier
+	if qpsMultiplier <= 0 {
+		qpsMultiplier = 1.0 // Default to no multiplier
+	}
+	if qpsMultiplier != 1.0 {
+		targetQPS = targetQPS * qpsMultiplier
+		log.Printf("Applied QPS multiplier: %.2f (adjusted target: %.2f)", qpsMultiplier, targetQPS)
+	} else {
+		log.Printf("Target total QPS: %.2f", targetQPS)
+	}
+
+	// Get burst multiplier (default: 2.0)
+	burstMultiplier := config.Query.BurstMultiplier
+	if burstMultiplier <= 0 {
+		burstMultiplier = 2.0 // Default to 2x for better rate limiter performance
+	}
+	log.Printf("Rate limiter burst multiplier: %.2f", burstMultiplier)
+
+	// Get query result limit (default: 1000)
+	queryLimit := config.Query.Limit
+	if queryLimit <= 0 {
+		queryLimit = 1000 // Default to 1000 results per query
+	}
+	log.Printf("Query result limit: %d", queryLimit)
 
 	// Convert time buckets
 	timeBuckets, err := convertTimeBuckets(config.TimeBuckets)
@@ -314,23 +342,23 @@ func main() {
 	if len(config.ExecutionPlan) == 0 {
 		log.Fatalf("No executionPlan defined in configuration. Please define an execution plan in config.yaml")
 	}
-	
+
 	log.Printf("Loaded execution plan with %d entries from config", len(config.ExecutionPlan))
-	
+
 	// Validate plan: count entries per query and check for undefined queries
 	queryDist := make(map[string]int)
 	queryMap := make(map[string]bool)
 	for _, q := range config.Queries {
 		queryMap[q.Name] = true
 	}
-	
+
 	for _, entry := range config.ExecutionPlan {
 		if !queryMap[entry.QueryName] {
 			log.Fatalf("Execution plan references undefined query: %s", entry.QueryName)
 		}
 		queryDist[entry.QueryName]++
 	}
-	
+
 	log.Printf("Plan distribution across queries:")
 	for queryName, count := range queryDist {
 		log.Printf("  %s: %d entries (will cycle/repeat as needed)", queryName, count)
@@ -339,16 +367,18 @@ func main() {
 	// Create and start query executors
 	for _, q := range config.Queries {
 		qs := queryExecutor{
-			name:          q.Name,
-			namespace:     config.Namespace,
-			queryEndpoint: config.Tempo.QueryEndpoint,
-			traceQL:       q.TraceQL,
-			delay:         queryDelay,
-			timeBuckets:   timeBuckets,
-			concurrency:   concurrentQueries,
-			tenantID:      config.TenantID,
-			targetQPS:     perQueryQPS,
-			executionPlan: config.ExecutionPlan,
+			name:            q.Name,
+			namespace:       config.Namespace,
+			queryEndpoint:   config.Tempo.QueryEndpoint,
+			traceQL:         q.TraceQL,
+			delay:           queryDelay,
+			timeBuckets:     timeBuckets,
+			concurrency:     concurrentQueries,
+			tenantID:        config.TenantID,
+			targetQPS:       perQueryQPS,
+			burstMultiplier: burstMultiplier,
+			limit:           queryLimit,
+			executionPlan:   config.ExecutionPlan,
 		}
 		if err := qs.run(); err != nil {
 			log.Fatalf("Could not run query executor: %v", err)
@@ -360,16 +390,18 @@ func main() {
 }
 
 type queryExecutor struct {
-	name          string
-	namespace     string
-	queryEndpoint string
-	traceQL       string
-	delay         time.Duration
-	timeBuckets   []timeBucket
-	concurrency   int
-	tenantID      string
-	targetQPS     float64
-	executionPlan []PlanEntry // Execution plan from config
+	name            string
+	namespace       string
+	queryEndpoint   string
+	traceQL         string
+	delay           time.Duration
+	timeBuckets     []timeBucket
+	concurrency     int
+	tenantID        string
+	targetQPS       float64
+	burstMultiplier float64
+	limit           int
+	executionPlan   []PlanEntry // Execution plan from config
 }
 
 // planIndices stores atomic counters for each query name to cycle through plan entries
@@ -380,11 +412,11 @@ var planIndicesMutex sync.Mutex
 func getPlanIndex(queryName string) *int64 {
 	planIndicesMutex.Lock()
 	defer planIndicesMutex.Unlock()
-	
+
 	if idx, exists := planIndices[queryName]; exists {
 		return idx
 	}
-	
+
 	idx := new(int64)
 	planIndices[queryName] = idx
 	return idx
@@ -420,7 +452,10 @@ func (queryExecutor queryExecutor) run() error {
 
 	// Create a shared rate limiter for all workers of this query type
 	// The limiter ensures total QPS for this query type equals targetQPS
-	limiter := rate.NewLimiter(rate.Limit(queryExecutor.targetQPS), 1)
+	// Calculate burst size: allow 1-2 seconds of burst capacity for better rate accuracy
+	burstSize := int(math.Max(10, queryExecutor.targetQPS*queryExecutor.burstMultiplier))
+	limiter := rate.NewLimiter(rate.Limit(queryExecutor.targetQPS), burstSize)
+	log.Printf("Rate limiter for %s: QPS=%.4f, burst=%d (multiplier=%.2f)", queryExecutor.name, queryExecutor.targetQPS, burstSize, queryExecutor.burstMultiplier)
 	ctx := context.Background()
 
 	// Launch N independent workers for concurrent execution
@@ -460,11 +495,11 @@ func (queryExecutor queryExecutor) run() error {
 					idx := atomic.AddInt64(planIdx, 1) - 1
 					entryIdx := int(idx) % len(matchingEntries) // Cycle through matching entries - repeats when exhausted
 					entry := matchingEntries[entryIdx]
-					
+
 					// Log when we've cycled through all entries once
-					if idx > 0 && idx % int64(len(matchingEntries)) == 0 {
-						log.Printf("[worker-%d] Query '%s': Cycled through all %d plan entries, repeating from start (cycle: %d)", 
-							id, queryExecutor.name, len(matchingEntries), idx / int64(len(matchingEntries)))
+					if idx > 0 && idx%int64(len(matchingEntries)) == 0 {
+						log.Printf("[worker-%d] Query '%s': Cycled through all %d plan entries, repeating from start (cycle: %d)",
+							id, queryExecutor.name, len(matchingEntries), idx/int64(len(matchingEntries)))
 					}
 
 					bucketName = entry.BucketName
@@ -481,15 +516,11 @@ func (queryExecutor queryExecutor) run() error {
 							// Check if bucket is eligible based on elapsed time
 							elapsed := time.Since(testStartTime)
 							if bucket.ageEnd <= elapsed {
-								// Calculate time range dynamically with random jitter within bucket
+								// Calculate time range dynamically without jitter for stable query windows
 								now := time.Now()
-								bucketRange := bucket.ageEnd - bucket.ageStart
-								jitter := time.Duration(0)
-								if bucketRange > 0 {
-									jitter = time.Duration(rand.Int63n(int64(bucketRange)))
-								}
-								endTime = now.Add(-bucket.ageStart).Add(-jitter)
-								startTime = now.Add(-bucket.ageEnd).Add(-jitter)
+								// Use fixed bucket boundaries for consistent results
+								endTime = now.Add(-bucket.ageStart)
+								startTime = now.Add(-bucket.ageEnd)
 								endTimeStamp = fmt.Sprintf("%d", endTime.Unix())
 								startTimeStamp = fmt.Sprintf("%d", startTime.Unix())
 							} else {
@@ -534,7 +565,8 @@ func (queryExecutor queryExecutor) run() error {
 					queryParams.Set("start", startTimeStamp)
 					queryParams.Set("end", endTimeStamp)
 				}
-				queryParams.Set("limit", "1000")
+				// Set query result limit from configuration
+				queryParams.Set("limit", fmt.Sprintf("%d", queryExecutor.limit))
 				req.URL.RawQuery = queryParams.Encode()
 
 				start := time.Now()

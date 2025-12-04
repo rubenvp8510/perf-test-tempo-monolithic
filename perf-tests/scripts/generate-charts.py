@@ -123,9 +123,17 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
         mb_per_sec_actual = bytes_per_sec / (1024 * 1024) if bytes_per_sec else 0
         
         # Get CPU values in cores and convert to millicores
-        cpu_cores = r.get('metrics', {}).get('resources', {}).get('avg_cpu_cores', 0)
-        sustained_cpu_cores = r.get('metrics', {}).get('resources', {}).get('sustained_cpu_cores', 0)
+        resources = r.get('metrics', {}).get('resources', {})
+        cpu_cores = resources.get('avg_cpu_cores', 0)
+        max_cpu_cores = resources.get('max_cpu_cores', 0)
+        min_cpu_cores = resources.get('min_cpu_cores', 0)
+        sustained_cpu_cores = resources.get('sustained_cpu_cores', 0)
         recommended_cpu_cores = r.get('metrics', {}).get('resource_recommendations', {}).get('cpu_cores', 0)
+        
+        # Get memory values
+        avg_memory_gb = resources.get('avg_memory_gb', 0)
+        max_memory_gb = resources.get('max_memory_gb', 0)
+        min_memory_gb = resources.get('min_memory_gb', 0)
         
         # Calculate GB per day from actual MB/s: MB/s * 86400 seconds/day / 1024 MB/GB
         gb_per_day = mb_per_sec_actual * 86400 / 1024 if mb_per_sec_actual else 0
@@ -147,7 +155,14 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'avg_latency_ms': r.get('metrics', {}).get('query_latencies', {}).get('avg_seconds', 0) * 1000,
             'cpu_cores': cpu_cores,
             'cpu_millicores': cpu_cores * 1000,  # Convert to millicores
-            'memory_gb': r.get('metrics', {}).get('resources', {}).get('max_memory_gb', 0),
+            'max_cpu_cores': max_cpu_cores,
+            'max_cpu_millicores': max_cpu_cores * 1000,  # Convert to millicores
+            'min_cpu_cores': min_cpu_cores,
+            'min_cpu_millicores': min_cpu_cores * 1000,  # Convert to millicores
+            'avg_memory_gb': avg_memory_gb,
+            'memory_gb': max_memory_gb,  # Keep for backward compatibility
+            'max_memory_gb': max_memory_gb,
+            'min_memory_gb': min_memory_gb,
             'sustained_cpu': sustained_cpu_cores,
             'sustained_cpu_millicores': sustained_cpu_cores * 1000,  # Convert to millicores
             'peak_memory_gb': r.get('metrics', {}).get('resources', {}).get('peak_memory_gb', 0),
@@ -157,6 +172,7 @@ def results_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
             'spans_per_sec': r.get('metrics', {}).get('throughput', {}).get('spans_per_second', 0),
             'error_rate': r.get('metrics', {}).get('errors', {}).get('error_rate_percent', 0),
             'dropped_spans': r.get('metrics', {}).get('errors', {}).get('dropped_spans_per_second', 0),
+            'discarded_spans': r.get('metrics', {}).get('errors', {}).get('discarded_spans_per_second', 0),
             'avg_spans_returned': r.get('metrics', {}).get('query_results', {}).get('avg_spans_returned', 0),
             'actual_qps': actual_qps,
             'target_qps': target_qps,
@@ -194,6 +210,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
         p99_data = {item['timestamp']: item['value'] for item in timeseries.get('p99_latency_seconds', [])}
         failures_data = {item['timestamp']: item['value'] for item in timeseries.get('query_failures_per_second', [])}
         dropped_data = {item['timestamp']: item['value'] for item in timeseries.get('dropped_spans_per_second', [])}
+        discarded_data = {item['timestamp']: item['value'] for item in timeseries.get('discarded_spans_per_second', [])}
         spans_returned_data = {item['timestamp']: item['value'] for item in timeseries.get('avg_spans_returned', [])}
         qps_data = {item['timestamp']: item['value'] for item in timeseries.get('qps', [])}
         
@@ -214,6 +231,7 @@ def extract_timeseries_data(results: list[dict[str, Any]]) -> pd.DataFrame:
                 'p99_ms': p99_data.get(ts, 0) * 1000,
                 'query_failures': failures_data.get(ts, 0),
                 'dropped_spans': dropped_data.get(ts, 0),
+                'discarded_spans': discarded_data.get(ts, 0),
                 'avg_spans_returned': spans_returned_data.get(ts, 0),
                 'qps': qps_data.get(ts, 0),
                 'target_qps': target_qps,
@@ -358,22 +376,25 @@ def create_error_chart(df: pd.DataFrame, output_dir: Path, report_name: str, tim
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
     x = range(len(df))
-    width = 0.35
+    width = 0.25
 
     # Error rate bars
-    bars1 = ax1.bar([i - width/2 for i in x], df['error_rate'], width,
+    bars1 = ax1.bar([i - width for i in x], df['error_rate'], width,
                     label='Error Rate (%)', color=COLORS['secondary'],
                     edgecolor='white', linewidth=0.5)
     ax1.set_xlabel('Load Configuration', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Error Rate (%)', fontsize=12, fontweight='bold', color=COLORS['secondary'])
     ax1.tick_params(axis='y', labelcolor=COLORS['secondary'])
 
-    # Dropped spans on secondary axis
+    # Dropped and discarded spans on secondary axis
     ax2 = ax1.twinx()
-    bars2 = ax2.bar([i + width/2 for i in x], df['dropped_spans'], width,
+    bars2 = ax2.bar(x, df['dropped_spans'], width,
                     label='Dropped Spans/sec', color=COLORS['accent'],
                     edgecolor='white', linewidth=0.5)
-    ax2.set_ylabel('Dropped Spans/sec', fontsize=12, fontweight='bold', color=COLORS['accent'])
+    bars3 = ax2.bar([i + width for i in x], df['discarded_spans'], width,
+                    label='Discarded Spans/sec', color=COLORS['tertiary'],
+                    edgecolor='white', linewidth=0.5)
+    ax2.set_ylabel('Spans/sec', fontsize=12, fontweight='bold', color=COLORS['accent'])
     ax2.tick_params(axis='y', labelcolor=COLORS['accent'])
 
     ax1.set_title(f'{report_name}\nError Metrics by Load Level', fontsize=14, fontweight='bold', pad=20)
@@ -955,7 +976,7 @@ def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report
     if ts_df.empty:
         return
     
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
     
     loads = ts_df['load_name'].unique()
     
@@ -980,9 +1001,21 @@ def create_timeseries_errors_chart(ts_df: pd.DataFrame, output_dir: Path, report
     
     ax2.set_ylabel('Dropped Spans/sec', fontsize=11, fontweight='bold')
     ax2.set_title('Dropped Spans Over Time', fontsize=12, fontweight='bold')
-    ax2.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
     ax2.legend(loc='upper right', framealpha=0.9)
     ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    # Discarded spans chart
+    for i, load in enumerate(loads):
+        load_data = ts_df[ts_df['load_name'] == load]
+        ax3.plot(load_data['minute'], load_data['discarded_spans'], 
+                label=load, color=LOAD_COLORS[i % len(LOAD_COLORS)],
+                linewidth=2, marker='o', markersize=3)
+    
+    ax3.set_ylabel('Discarded Spans/sec', fontsize=11, fontweight='bold')
+    ax3.set_title('Discarded Spans Over Time', fontsize=12, fontweight='bold')
+    ax3.set_xlabel('Time (minutes)', fontsize=11, fontweight='bold')
+    ax3.legend(loc='upper right', framealpha=0.9)
+    ax3.grid(True, linestyle='--', alpha=0.7)
     
     plt.tight_layout()
     output_path = output_dir / f'report-{timestamp}-timeseries_errors.png'
@@ -1335,6 +1368,11 @@ def generate_interactive_dashboard(df: pd.DataFrame, output_dir: Path, report_na
         marker_color=COLORS['accent'], text=df['dropped_spans'].round(1),
         textposition='outside', textfont=dict(size=10)
     ), row=2, col=2)
+    fig.add_trace(go.Bar(
+        name='Discarded Spans/sec', x=load_labels, y=df['discarded_spans'],
+        marker_color=COLORS['tertiary'], text=df['discarded_spans'].round(1),
+        textposition='outside', textfont=dict(size=10)
+    ), row=2, col=2)
 
     # Update layout
     fig.update_layout(
@@ -1412,7 +1450,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
             'Query Latency Over Time (P50, P90, P99)',
             'Resource Usage Over Time (container_cpu_usage_seconds_total)',
             'Bytes Ingested Over Time (MB/sec)',
-            'Error Metrics Over Time',
+            'Error Metrics Over Time (Failures, Dropped, Discarded)',
             'Average Spans Returned per Query Over Time'
         ),
         vertical_spacing=0.06,
@@ -1510,6 +1548,14 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
             line=dict(color=color, width=2, dash='dash'),
             legendgroup=f'{load}_err', showlegend=False,
         ), row=4, col=1, secondary_y=True)
+        
+        # Discarded spans (tertiary y-axis - using different dash pattern)
+        fig.add_trace(go.Scatter(
+            x=load_data['minute'], y=load_data['discarded_spans'],
+            name=f'{load} Discarded', mode='lines',
+            line=dict(color=color, width=2, dash='dot'),
+            legendgroup=f'{load}_err', showlegend=False,
+        ), row=4, col=1, secondary_y=True)
     
     # Row 5: Average Spans Returned per Query
     for i, load in enumerate(loads):
@@ -1567,7 +1613,7 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
     fig.update_yaxes(title_text="Memory (GB)", row=2, col=1, secondary_y=True)
     fig.update_yaxes(title_text="MB/sec", row=3, col=1)
     fig.update_yaxes(title_text="Failures/sec", row=4, col=1, secondary_y=False)
-    fig.update_yaxes(title_text="Dropped/sec", row=4, col=1, secondary_y=True)
+    fig.update_yaxes(title_text="Dropped/Discarded/sec", row=4, col=1, secondary_y=True)
     fig.update_yaxes(title_text="Avg Spans", row=5, col=1)
     
     # Save dashboard
@@ -1592,6 +1638,21 @@ def generate_timeseries_dashboard(ts_df: pd.DataFrame, output_dir: Path, report_
 def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str) -> None:
     """Generate an HTML summary table of results."""
     print("\n📋 Generating summary table...")
+
+    # Ensure new resource metric columns exist (for backward compatibility)
+    if 'max_cpu_cores' not in df.columns:
+        df['max_cpu_cores'] = 0
+        df['max_cpu_millicores'] = 0
+    if 'min_cpu_cores' not in df.columns:
+        df['min_cpu_cores'] = 0
+        df['min_cpu_millicores'] = 0
+    if 'avg_memory_gb' not in df.columns:
+        df['avg_memory_gb'] = 0
+    if 'max_memory_gb' not in df.columns:
+        # Use memory_gb as fallback if it exists
+        df['max_memory_gb'] = df['memory_gb'] if 'memory_gb' in df.columns else 0
+    if 'min_memory_gb' not in df.columns:
+        df['min_memory_gb'] = 0
 
     # Calculate efficiency based on target vs actual MB/s
     df['efficiency'] = df.apply(
@@ -1690,6 +1751,12 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>P90 (ms)</th>
                     <th>P99 (ms)</th>
                     <th>Avg (ms)</th>
+                    <th>Avg CPU (m)</th>
+                    <th>Max CPU (m)</th>
+                    <th>Min CPU (m)</th>
+                    <th>Avg Memory (GB)</th>
+                    <th>Max Memory (GB)</th>
+                    <th>Min Memory (GB)</th>
                     <th>Sustained CPU (m)</th>
                     <th>Peak Memory</th>
                     <th>Rec. CPU (20%) (m)</th>
@@ -1697,6 +1764,8 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <th>Spans/sec</th>
                     <th>Efficiency</th>
                     <th>Error Rate</th>
+                    <th>Dropped Spans/sec</th>
+                    <th>Discarded Spans/sec</th>
                     <th>Target QPS</th>
                     <th>Actual QPS</th>
                 </tr>
@@ -1723,6 +1792,12 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['p90_ms']:.1f}</td>
                     <td>{row['p99_ms']:.1f}</td>
                     <td>{row['avg_latency_ms']:.1f}</td>
+                    <td>{row['cpu_millicores']:.0f}</td>
+                    <td>{row['max_cpu_millicores']:.0f}</td>
+                    <td>{row['min_cpu_millicores']:.0f}</td>
+                    <td>{row['avg_memory_gb']:.2f}</td>
+                    <td>{row['max_memory_gb']:.2f}</td>
+                    <td>{row['min_memory_gb']:.2f}</td>
                     <td>{row['sustained_cpu_millicores']:.0f}</td>
                     <td>{row['peak_memory_gb']:.2f} GB</td>
                     <td class="metric-rec">{row['recommended_cpu_millicores']:.0f}</td>
@@ -1730,6 +1805,8 @@ def generate_summary_table(df: pd.DataFrame, output_dir: Path, report_name: str)
                     <td>{row['spans_per_sec']:.0f}</td>
                     <td class="{eff_class}">{row['efficiency']:.1f}%</td>
                     <td class="{err_class}">{row['error_rate']:.2f}%</td>
+                    <td>{row['dropped_spans']:.2f}</td>
+                    <td>{row['discarded_spans']:.2f}</td>
                     <td>{target_qps_str}</td>
                     <td class="{qps_eff_class}">{row['actual_qps']:.2f}</td>
                 </tr>

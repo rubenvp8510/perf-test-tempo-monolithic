@@ -1,0 +1,110 @@
+# Performance Test Load Configurations
+# 
+# Each load defines a different trace generation rate in MB/sec.
+# The test will run each load for the specified duration.
+
+# Default test duration for each load (can be overridden via CLI)
+testDuration: "30m"
+
+# Namespace where tests will run
+namespace: "tempo-perf-test"
+
+# Multitenancy configuration
+tenants:
+  - id: "tenant-1"
+    description: "Default tenant for performance testing"
+
+# OpenTelemetry Collector configuration
+# Trace generators send to the collector, which adds auth and tenant headers
+otelCollector:
+  serviceName: "otel-collector-collector"
+  port: 4317
+
+# Tempo endpoint configuration (for direct queries)
+tempo:
+  host: "tempo-simplest"
+  grpcPort: 4317
+  jaegerUIPort: 16686
+
+# Estimation config for TPS calculation
+# Used to convert MB/s to TPS for the loadgen tool
+# TPS = (mb_per_sec * 1024 * 1024) / (weighted_avg_spans * estimatedBytesPerSpan)
+estimatedBytesPerSpan: 800
+
+# Service configurations for multi-service trace generation
+# Each service has different trace complexity (depth/spans) and receives
+# a weighted portion of the total load
+# - name: Service name (used as dataset in loadgen)
+# - depth: Depth of the trace tree for this service
+# - nspans: Number of spans per trace for this service
+# - weight: Percentage of total load allocated to this service (must sum to 100)
+services:
+  - name: "frontend"
+    depth: 3
+    nspans: 8
+    weight: 30
+  - name: "api-gateway"
+    depth: 5
+    nspans: 15
+    weight: 25
+  - name: "order-service"
+    depth: 8
+    nspans: 35
+    weight: 20
+  - name: "payment-service"
+    depth: 4
+    nspans: 12
+    weight: 10
+  - name: "inventory-service"
+    depth: 6
+    nspans: 25
+    weight: 15
+
+# Load configurations
+# - name: Human-readable name for the load (used in reports)
+# - mb_per_sec: Target ingestion rate in megabytes per second
+# - parallelism: Number of parallel load generator pods (replicas)
+# - tps_multiplier: Empirical multiplier to adjust TPS calculation
+#                   (compensates for actual span sizes being smaller than estimated)
+# - queryQPS: Total queries per second across all query types
+# - qpsMultiplier: Optional multiplier to apply to queryQPS for compensation (default: 1.0)
+# - concurrentQueries: Optional override for concurrent queries per query type (default: from queryGenerator)
+loads:
+  - name: "low"
+    description: "Low load - baseline test"
+    mb_per_sec: 0.7
+    parallelism: 2
+    tps_multiplier: 4    # Calibrated: hits ~0.75 MB/s ✓
+    queryQPS: 25         # Total queries per second across all query types
+    concurrentQueries: 2 # Increased from 1 for better rate accuracy
+
+  - name: "medium"
+    description: "Medium load - typical production"
+    mb_per_sec: 2.0
+    parallelism: 3
+    tps_multiplier: 2.4  # Calibrated: was 1.5 hitting 1.25 MB/s, now targets 2.0 MB/s
+    queryQPS: 50         # Total queries per second across all query types
+    concurrentQueries: 3 # Increased from 1 for better rate accuracy
+
+  - name: "high"
+    description: "High load - stress test"
+    mb_per_sec: 4.0
+    parallelism: 4
+    tps_multiplier: 1.8  # Calibrated: was 1.2 hitting 2.67 MB/s, now targets 4.0 MB/s
+    queryQPS: 75         # Total queries per second across all query types
+    concurrentQueries: 5 # Increased from 1 for better rate accuracy
+
+  - name: "very-high"
+    description: "Very high load - peak capacity test"
+    mb_per_sec: 7.0
+    parallelism: 5
+    tps_multiplier: 1.45 # Calibrated: was 1 hitting 4.85 MB/s, now targets 7.0 MB/s
+    queryQPS: 75        # Total queries per second across all query types
+    concurrentQueries: 8 # Increased from 1 for better rate accuracy
+    qpsMultiplier: 1.1  # Target 10% higher to compensate for overhead (67.79 -> ~75)
+
+# Query generator configuration
+queryGenerator:
+  image: "quay.io/rvargasp/query-load-generator:latest"
+  delay: "5s"
+  concurrentQueries: 5  # Default for loads that don't specify (increased from 1)

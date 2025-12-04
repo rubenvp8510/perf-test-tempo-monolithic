@@ -1,12 +1,11 @@
-# Performance Test Load Configurations - THREE-TIER NON-PRODUCTION OPTIMIZED
+# Performance Test Load Configurations - IMPROVED VERSION
 # 
-# Three-tier load configuration optimized for non-production Tempo monolithic.
-# Based on performance test results showing degradation above 2.5 MB/s ingestion
-# and 40+ QPS queries.
+# This configuration fixes the resource consumption anomaly where low loads
+# consumed more resources than high loads. Key improvements:
 #
-# Key characteristics:
-# 1. Conservative query limits: All loads stay within safe non-production bounds
-# 2. Realistic ingestion rates: Max 3.0 MB/s to prevent severe degradation
+# 1. Proportional query scaling: QPS scales linearly with ingestion rate
+#    - Maintains ~20 QPS per MB/s ratio across all loads
+# 2. Proper concurrent query scaling with load
 # 3. Longer test duration with warm-up period (45min total)
 # 4. Adaptive rate windows for metric collection
 #
@@ -60,40 +59,51 @@ services:
     nspans: 25
     weight: 15
 
-# THREE-TIER LOAD CONFIGURATION
-# Optimized for non-production Tempo monolithic with safe query limits
+# IMPROVED Load configurations
+# Key change: queryQPS now scales proportionally with ingestion rate
+# Target ratio: ~20 QPS per MB/s (±10%)
 loads:
   - name: "low"
-    description: "Low load - development/baseline testing"
+    description: "Low load - baseline test"
     mb_per_sec: 0.7
     parallelism: 2
     tps_multiplier: 4
+    # FIXED: Reduced from 25 to 15 QPS (21.4 QPS/MB ratio)
     queryQPS: 15
     concurrentQueries: 2
-    # Expected: ~8,000 spans/query, excellent stability
-    # Resources: 4Gi RAM, 500m CPU (small overlay)
+    # Shorter measurement window for low load
     measurementWindow: "1m"
 
   - name: "medium"
-    description: "Medium load - typical monolithic workload"
+    description: "Medium load - typical production"
     mb_per_sec: 2.0
     parallelism: 3
     tps_multiplier: 2.4
-    queryQPS: 35
-    concurrentQueries: 2
-    # Expected: ~3,500-5,000 spans/query, good stability
-    # Resources: 8Gi RAM, 1 CPU (medium overlay)
+    # FIXED: Reduced from 50 to 40 QPS (20.0 QPS/MB ratio)
+    queryQPS: 40
+    concurrentQueries: 3
     measurementWindow: "3m"
 
   - name: "high"
-    description: "High load - stress testing upper limits"
-    mb_per_sec: 3.0
+    description: "High load - stress test"
+    mb_per_sec: 4.0
     parallelism: 4
-    tps_multiplier: 2.0
-    queryQPS: 75
+    tps_multiplier: 1.8
+    # FIXED: Increased from 75 to 80 QPS (20.0 QPS/MB ratio)
+    queryQPS: 80
     concurrentQueries: 5
-    # Expected: ~2,500-3,000 spans/query, moderate degradation
-    # Resources: 12Gi RAM, 1.5 CPU (large overlay)
+    measurementWindow: "5m"
+
+  - name: "very-high"
+    description: "Very high load - peak capacity test"
+    mb_per_sec: 7.0
+    parallelism: 5
+    tps_multiplier: 1.45
+    # FIXED: Increased from 75 to 140 QPS (20.0 QPS/MB ratio)
+    # This is the critical fix - was same as "high" despite 1.75x more ingestion
+    queryQPS: 140
+    concurrentQueries: 8
+    qpsMultiplier: 1.0
     measurementWindow: "5m"
 
 # Query generator configuration
@@ -102,4 +112,5 @@ queryGenerator:
   delay: "15m"  # CHANGED: 15-minute warm-up before starting queries
   concurrentQueries: 5
   burstMultiplier: 2.0
+
 

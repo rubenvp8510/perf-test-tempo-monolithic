@@ -17,7 +17,7 @@ NAMESPACE := tempo-perf-test
 MONITORING_NAMESPACE := tempo-monitoring
 REPOSITORY := rvargasp
 
-.PHONY: help perf-test perf-test-quick perf-test-fresh ensure-monitoring deploy-tempo deploy-stack \
+.PHONY: help perf-test perf-test-quick perf-test-5m perf-test-fresh ensure-monitoring deploy-tempo deploy-stack \
         gen stop-gen pods status clean clean-cluster clean-results clean-all reset-tempo build-push-gen generate-charts install-chart-deps
 
 # Default target
@@ -27,9 +27,12 @@ help:
 	@echo "Usage:"
 	@echo "  make perf-test              Run full performance test suite (fresh state by default)"
 	@echo "  make perf-test-quick        Run quick test (5min, low load only)"
+	@echo "  make perf-test-5m           Run full test suite (5 minutes per test)"
+	@echo "  make perf-test-1h           Run full test suite (1 hour per test)"
 	@echo "  make perf-test-fresh        Run tests with fresh Tempo state each time (default)"
 	@echo "  make perf-test-keep-state   Run tests keeping existing Tempo state"
 	@echo "  make perf-test-load LOAD=x  Run specific load test"
+	@echo "  make perf-test-duration DURATION=x  Run tests with custom duration (e.g., 1h, 2h)"
 	@echo "  make generate-report        Generate reports from existing results"
 	@echo "  make generate-charts        Generate charts from existing results"
 	@echo "  make install-chart-deps     Install Python dependencies for charts"
@@ -81,6 +84,16 @@ perf-test-load: ensure-monitoring
 perf-test-duration: ensure-monitoring
 	@echo "Running performance test with duration: $(DURATION)..."
 	./perf-tests/scripts/run-perf-tests.sh -d $(DURATION)
+
+# Run full performance test suite for 5 minutes per test (all loads)
+perf-test-5m: ensure-monitoring
+	@echo "Running full performance test suite (5 minutes per test)..."
+	./perf-tests/scripts/run-perf-tests.sh -d 5m
+
+# Run full performance test suite for 1 hour per test
+perf-test-1h: ensure-monitoring
+	@echo "Running full performance test suite (1 hour per test)..."
+	./perf-tests/scripts/run-perf-tests.sh -d 1h
 
 # Generate report from existing results (includes charts if dependencies installed)
 generate-report:
@@ -202,13 +215,63 @@ reset-tempo:
 	oc delete jobs -l app=trace-generator -n $(NAMESPACE) --ignore-not-found=true --wait=true
 	oc delete deployment query-load-generator -n $(NAMESPACE) --ignore-not-found=true --wait=true
 	oc delete tempomonolithic simplest -n $(NAMESPACE) --ignore-not-found=true --wait=true
+	@echo "Deleting OpenTelemetry Collector..."
+	@oc delete opentelemetrycollector otel-collector -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete deployment otel-collector-collector -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete deployment otel-collector -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete serviceaccount otel-collector-sa -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete role otel-collector-role -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete rolebinding otel-collector-rolebinding -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@oc delete clusterrole allow-write-traces-tenant-1 --ignore-not-found=true --wait=true || true
+	@oc delete clusterrolebinding allow-write-traces-tenant-1 --ignore-not-found=true --wait=true || true
 	oc delete deployment minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
 	oc delete service minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
 	oc delete secret minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
-	oc delete pvc minio -n $(NAMESPACE) --ignore-not-found=true --wait=true
-	@echo "Waiting for all pods to terminate..."
+	@echo "Waiting for all pods to terminate before deleting PVC..."
 	@while oc get pods -l app.kubernetes.io/name=tempo -n $(NAMESPACE) --no-headers 2>/dev/null | grep -q .; do sleep 2; done
+	@while oc get pods -l app.kubernetes.io/name=opentelemetry-collector -n $(NAMESPACE) --no-headers 2>/dev/null | grep -q .; do sleep 2; done
 	@while oc get pods -l app.kubernetes.io/name=minio -n $(NAMESPACE) --no-headers 2>/dev/null | grep -q .; do sleep 2; done
+	@echo "Deleting MinIO PVC..."
+	@oc delete pvc minio -n $(NAMESPACE) --ignore-not-found=true --wait=true || true
+	@echo "Waiting for MinIO PVC to be fully deleted..."
+	@timeout=60; elapsed=0; \
+	while oc get pvc minio -n $(NAMESPACE) &>/dev/null && [ $$elapsed -lt $$timeout ]; do \
+		echo "  Waiting for PVC deletion... ($$elapsed/$$timeout seconds)"; \
+		sleep 2; \
+		elapsed=$$((elapsed + 2)); \
+	done; \
+	if oc get pvc minio -n $(NAMESPACE) &>/dev/null; then \
+		echo "PVC deletion stuck, attempting to remove finalizers..."; \
+		oc patch pvc minio -n $(NAMESPACE) -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true; \
+		sleep 2; \
+		oc delete pvc minio -n $(NAMESPACE) --ignore-not-found=true --force --grace-period=0 || true; \
+	fi
+	@echo "Cleaning up associated Persistent Volume (if exists)..."
+	@pv_name=$$(oc get pvc minio -n $(NAMESPACE) -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo ""); \
+	if [ -n "$$pv_name" ] && oc get pv $$pv_name &>/dev/null; then \
+		pv_status=$$(oc get pv $$pv_name -o jsonpath='{.status.phase}' 2>/dev/null || echo ""); \
+		if [ "$$pv_status" = "Released" ] || [ "$$pv_status" = "Available" ]; then \
+			echo "  Deleting PV $$pv_name (status: $$pv_status)..."; \
+			oc delete pv $$pv_name --ignore-not-found=true || true; \
+		fi; \
+	fi; \
+	pvs=$$(oc get pv --no-headers 2>/dev/null | grep -E "minio|$(NAMESPACE)" | awk '{print $$1}' || true); \
+	if [ -n "$$pvs" ]; then \
+		for pv in $$pvs; do \
+			pv_status=$$(oc get pv $$pv -o jsonpath='{.status.phase}' 2>/dev/null || echo ""); \
+			if [ "$$pv_status" = "Released" ] || [ "$$pv_status" = "Available" ]; then \
+				echo "  Deleting orphaned PV $$pv (status: $$pv_status)..."; \
+				oc delete pv $$pv --ignore-not-found=true || true; \
+			fi; \
+		done; \
+	fi
+	@echo "Verifying cleanup is complete..."
+	@if oc get pvc minio -n $(NAMESPACE) &>/dev/null; then \
+		echo "  WARNING: MinIO PVC still exists"; \
+		exit 1; \
+	else \
+		echo "  MinIO PVC deleted successfully"; \
+	fi
 	@echo "Redeploying Tempo..."
 	./scripts/deploy-tempo-monolithic.sh
 

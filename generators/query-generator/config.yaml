@@ -8,20 +8,23 @@ query:
   delay: "5s"
   concurrentQueries: 5
   targetQPS: 50  # Total queries per second across all query types
+  burstMultiplier: 2.0  # Rate limiter burst = targetQPS * burstMultiplier (allows catching up)
+  qpsMultiplier: 1.0     # Multiplier to apply to targetQPS for compensation (default: 1.0)
+  limit: 1000           # Maximum number of results to return per query (default: 1000)
 
 timeBuckets:
   - name: "recent"
-    ageStart: "30s"
-    ageEnd: "2m"
-    weight: 20
+    ageStart: "10s"
+    ageEnd: "1m"
+    weight: 50
   - name: "ingester"
+    ageStart: "1m"
+    ageEnd: "5m"
+    weight: 40
+  - name: "backend"
     ageStart: "5m"
     ageEnd: "15m"
-    weight: 30
-  - name: "backend-1h"
-    ageStart: "1h"
-    ageEnd: "2h"
-    weight: 50
+    weight: 10
 
 queries:
   # ============================================
@@ -29,16 +32,10 @@ queries:
   # ============================================
   - name: "resource_service_loadtest"
     traceql: '{ resource.service.name = "frontend" }'
-  - name: "resource_service_frontend"
-    traceql: '{ resource.service.name = "frontend" }'
   - name: "resource_service_api_gateway"
     traceql: '{ resource.service.name = "api-gateway" }'
   - name: "resource_service_order"
     traceql: '{ resource.service.name = "order-service" }'
-  - name: "resource_service_payment"
-    traceql: '{ resource.service.name = "payment-service" }'
-  - name: "resource_service_inventory"
-    traceql: '{ resource.service.name = "inventory-service" }'
 
   # ============================================
   # Span Attribute Queries
@@ -67,8 +64,6 @@ queries:
     traceql: '{ duration < 50ms }'
   - name: "duration_range_100ms_500ms"
     traceql: '{ duration > 100ms && duration < 500ms }'
-  - name: "duration_range_500ms_2s"
-    traceql: '{ duration > 500ms && duration < 2s }'
 
   # ============================================
   # Status Intrinsic Queries
@@ -77,8 +72,6 @@ queries:
     traceql: '{ status = error }'
   - name: "status_ok"
     traceql: '{ status = ok }'
-  - name: "status_unset"
-    traceql: '{ status = unset }'
 
   # ============================================
   # Kind Intrinsic Queries
@@ -87,43 +80,9 @@ queries:
     traceql: '{ kind = server }'
   - name: "kind_client"
     traceql: '{ kind = client }'
-  - name: "kind_internal"
-    traceql: '{ kind = internal }'
 
   # ============================================
-  # Name Intrinsic Queries
-  # ============================================
-  - name: "name_http_request"
-    traceql: '{ name = "HTTP GET" }'
-  - name: "name_db_query"
-    traceql: '{ name = "db.query" }'
-
-  # ============================================
-  # Structural Queries - Parent-Child (>>)
-  # ============================================
-  - name: "struct_frontend_to_api"
-    traceql: '{ resource.service.name = "frontend" } >> { resource.service.name = "api-gateway" }'
-  - name: "struct_api_to_order"
-    traceql: '{ resource.service.name = "api-gateway" } >> { resource.service.name = "order-service" }'
-  - name: "struct_order_to_payment"
-    traceql: '{ resource.service.name = "order-service" } >> { resource.service.name = "payment-service" }'
-  - name: "struct_service_to_error"
-    traceql: '{ resource.service.name = "frontend" } >> { status = error }'
-  - name: "struct_get_to_slow"
-    traceql: '{ span.http.method = "GET" } >> { duration > 500ms }'
-  - name: "struct_post_to_error"
-    traceql: '{ span.http.method = "POST" } >> { span.http.status_code >= 400 }'
-
-  # ============================================
-  # Structural Queries - Sibling (~)
-  # ============================================
-  - name: "struct_sibling_http_db"
-    traceql: '{ name = "HTTP GET" } ~ { name = "db.query" }'
-  - name: "struct_sibling_get_post"
-    traceql: '{ span.http.method = "GET" } ~ { span.http.method = "POST" }'
-
-  # ============================================
-  # Complex Logic Queries (&&, ||)
+  # Simple Logic Queries (&&, ||)
   # ============================================
   - name: "logic_service_and_slow"
     traceql: '{ resource.service.name = "frontend" && duration > 500ms }'
@@ -137,40 +96,14 @@ queries:
     traceql: '{ resource.service.name = "frontend" || resource.service.name = "api-gateway" }'
   - name: "logic_or_methods"
     traceql: '{ span.http.method = "PUT" || span.http.method = "DELETE" }'
-  - name: "logic_complex_and_or"
-    traceql: '{ (span.http.method = "POST" || span.http.method = "PUT") && duration > 100ms }'
 
   # ============================================
   # Negation Queries (!=)
   # ============================================
-  - name: "negation_not_options"
-    traceql: '{ span.http.method != "OPTIONS" }'
   - name: "negation_not_ok"
     traceql: '{ status != ok }'
   - name: "negation_not_200"
     traceql: '{ span.http.status_code != 200 }'
-
-  # ============================================
-  # Aggregate Select Queries
-  # ============================================
-  - name: "select_http_status"
-    traceql: '{ } | select(span.http.status_code)'
-  - name: "select_service_name"
-    traceql: '{ } | select(resource.service.name)'
-  - name: "select_duration"
-    traceql: '{ duration > 100ms } | select(duration)'
-  - name: "select_method_status"
-    traceql: '{ span.http.method = "GET" } | select(span.http.status_code)'
-
-  # ============================================
-  # Combined Complex Queries
-  # ============================================
-  - name: "complex_service_slow_error"
-    traceql: '{ resource.service.name = "order-service" && duration > 1s && status = error }'
-  - name: "complex_struct_with_duration"
-    traceql: '{ resource.service.name = "frontend" && duration < 100ms } >> { duration > 500ms }'
-  - name: "complex_http_chain"
-    traceql: '{ span.http.method = "POST" && span.http.status_code = 200 } >> { span.http.status_code >= 500 }'
 
 # ============================================
 # Execution Plan
@@ -181,126 +114,68 @@ queries:
 # Customize this plan to control query distribution and time bucket usage.
 
 executionPlan:
-  # Resource queries - spread across time buckets
+  # Resource queries - favor recent and ingester buckets
   - queryName: "resource_service_loadtest"
     bucketName: "recent"
-  - queryName: "resource_service_frontend"
-    bucketName: "ingester"
   - queryName: "resource_service_api_gateway"
-    bucketName: "backend-1h"
+    bucketName: "ingester"
   - queryName: "resource_service_order"
     bucketName: "recent"
-  - queryName: "resource_service_payment"
-    bucketName: "ingester"
-  - queryName: "resource_service_inventory"
-    bucketName: "backend-1h"
   
-  # HTTP method queries
+  # HTTP method/status queries - spread across buckets
   - queryName: "span_http_get"
     bucketName: "recent"
   - queryName: "span_http_post"
     bucketName: "ingester"
   - queryName: "span_http_status_200"
-    bucketName: "backend-1h"
-  - queryName: "span_http_status_error"
     bucketName: "recent"
-  - queryName: "span_http_status_server_error"
+  - queryName: "span_http_status_error"
     bucketName: "ingester"
+  - queryName: "span_http_status_server_error"
+    bucketName: "recent"
   
-  # Duration queries
+  # Duration queries - spread across buckets
   - queryName: "duration_gt_100ms"
-    bucketName: "backend-1h"
+    bucketName: "ingester"
   - queryName: "duration_gt_500ms"
     bucketName: "recent"
   - queryName: "duration_gt_1s"
-    bucketName: "ingester"
+    bucketName: "backend"
   - queryName: "duration_lt_50ms"
-    bucketName: "backend-1h"
+    bucketName: "ingester"
   - queryName: "duration_range_100ms_500ms"
     bucketName: "recent"
-  - queryName: "duration_range_500ms_2s"
-    bucketName: "ingester"
   
-  # Status queries
+  # Status queries - favor recent and ingester
   - queryName: "status_error"
-    bucketName: "backend-1h"
+    bucketName: "recent"
   - queryName: "status_ok"
-    bucketName: "recent"
-  - queryName: "status_unset"
     bucketName: "ingester"
   
-  # Kind queries
+  # Kind queries - spread across buckets
   - queryName: "kind_server"
-    bucketName: "backend-1h"
+    bucketName: "recent"
   - queryName: "kind_client"
-    bucketName: "recent"
-  - queryName: "kind_internal"
     bucketName: "ingester"
   
-  # Name queries
-  - queryName: "name_http_request"
-    bucketName: "backend-1h"
-  - queryName: "name_db_query"
-    bucketName: "recent"
-  
-  # Structural queries - parent-child
-  - queryName: "struct_frontend_to_api"
-    bucketName: "ingester"
-  - queryName: "struct_api_to_order"
-    bucketName: "backend-1h"
-  - queryName: "struct_order_to_payment"
-    bucketName: "recent"
-  - queryName: "struct_service_to_error"
-    bucketName: "ingester"
-  - queryName: "struct_get_to_slow"
-    bucketName: "backend-1h"
-  - queryName: "struct_post_to_error"
-    bucketName: "recent"
-  
-  # Structural queries - sibling
-  - queryName: "struct_sibling_http_db"
-    bucketName: "ingester"
-  - queryName: "struct_sibling_get_post"
-    bucketName: "backend-1h"
-  
-  # Complex logic queries
+  # Simple AND logic queries - favor recent and ingester
   - queryName: "logic_service_and_slow"
     bucketName: "recent"
   - queryName: "logic_post_and_slow"
     bucketName: "ingester"
   - queryName: "logic_get_and_error"
-    bucketName: "backend-1h"
+    bucketName: "recent"
   - queryName: "logic_service_and_http_error"
-    bucketName: "recent"
+    bucketName: "ingester"
+  
+  # OR logic queries - spread across buckets
   - queryName: "logic_or_services"
-    bucketName: "ingester"
+    bucketName: "recent"
   - queryName: "logic_or_methods"
-    bucketName: "backend-1h"
-  - queryName: "logic_complex_and_or"
-    bucketName: "recent"
-  
-  # Negation queries
-  - queryName: "negation_not_options"
     bucketName: "ingester"
+  
+  # Negation queries - favor recent and ingester
   - queryName: "negation_not_ok"
-    bucketName: "backend-1h"
+    bucketName: "recent"
   - queryName: "negation_not_200"
-    bucketName: "recent"
-  
-  # Aggregate select queries
-  - queryName: "select_http_status"
-    bucketName: "ingester"
-  - queryName: "select_service_name"
-    bucketName: "backend-1h"
-  - queryName: "select_duration"
-    bucketName: "recent"
-  - queryName: "select_method_status"
-    bucketName: "ingester"
-  
-  # Complex combined queries
-  - queryName: "complex_service_slow_error"
-    bucketName: "backend-1h"
-  - queryName: "complex_struct_with_duration"
-    bucketName: "recent"
-  - queryName: "complex_http_chain"
     bucketName: "ingester"

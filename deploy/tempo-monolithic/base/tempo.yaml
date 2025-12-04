@@ -22,3 +22,11 @@ spec:
     metrics:
       serviceMonitors:
         enabled: true
+  extraConfig:
+    tempo:
+      ingester:
+        max_block_duration: 10m
+      overrides:
+          defaults:
+              ingestion:
+                  max_traces_per_user: 0

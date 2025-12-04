@@ -191,6 +191,16 @@ reset_tempo_state() {
     log_info "Deleting TempoMonolithic..."
     oc delete tempomonolithic simplest -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
+    log_info "Deleting OpenTelemetry Collector..."
+    oc delete opentelemetrycollector otel-collector -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete deployment otel-collector-collector -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete deployment otel-collector -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete serviceaccount otel-collector-sa -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete role otel-collector-role -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete rolebinding otel-collector-rolebinding -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    oc delete clusterrole allow-write-traces-tenant-1 --ignore-not-found=true --wait=true || true
+    oc delete clusterrolebinding allow-write-traces-tenant-1 --ignore-not-found=true --wait=true || true
+    
     log_info "Deleting MinIO deployment..."
     oc delete deployment minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
@@ -200,20 +210,11 @@ reset_tempo_state() {
     log_info "Deleting MinIO secret..."
     oc delete secret minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
     
-    log_info "Deleting MinIO PVC..."
-    oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true
-    
-    log_wait "Waiting for all resources to be fully deleted..."
+    log_wait "Waiting for all pods to terminate before deleting PVC..."
     
     # Wait for all jobs pods to be fully deleted
     while oc get pods -l app=trace-generator -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
         log_wait "Waiting for trace generator pods to be deleted..."
-        sleep 5
-    done
-    
-    # Wait for PVC to be fully deleted
-    while oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null; do
-        log_wait "Waiting for MinIO PVC to be deleted..."
         sleep 5
     done
     
@@ -223,11 +224,85 @@ reset_tempo_state() {
         sleep 5
     done
     
-    # Wait for MinIO pods to be fully deleted (correct label)
+    # Wait for OpenTelemetry Collector pods to be fully deleted
+    while oc get pods -l app.kubernetes.io/name=opentelemetry-collector -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
+        log_wait "Waiting for OpenTelemetry Collector pods to be deleted..."
+        sleep 5
+    done
+    
+    # Wait for MinIO pods to be fully deleted (correct label) - MUST complete before PVC deletion
     while oc get pods -l app.kubernetes.io/name=minio -n "$PERF_TEST_NAMESPACE" --no-headers 2>/dev/null | grep -q .; do
         log_wait "Waiting for MinIO pods to be deleted..."
         sleep 5
     done
+    
+    log_info "Deleting MinIO PVC..."
+    oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --wait=true || true
+    
+    # Wait for PVC to be fully deleted with timeout and finalizer handling
+    log_wait "Waiting for MinIO PVC to be fully deleted..."
+    local timeout=120
+    local elapsed=0
+    while oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null && [ $elapsed -lt $timeout ]; do
+        log_wait "Waiting for MinIO PVC to be deleted... (${elapsed}/${timeout} seconds)"
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    
+    # If PVC still exists, try to remove finalizers
+    if oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null; then
+        log_warn "PVC deletion stuck, attempting to remove finalizers..."
+        oc patch pvc minio -n "$PERF_TEST_NAMESPACE" -p '{"metadata":{"finalizers":[]}}' --type=merge 2>/dev/null || true
+        sleep 5
+        oc delete pvc minio -n "$PERF_TEST_NAMESPACE" --ignore-not-found=true --force --grace-period=0 || true
+        
+        # Wait again after removing finalizers
+        elapsed=0
+        while oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null && [ $elapsed -lt 60 ]; do
+            log_wait "Waiting for PVC deletion after finalizer removal... (${elapsed}/60 seconds)"
+            sleep 5
+            elapsed=$((elapsed + 5))
+        done
+    fi
+    
+    # Clean up associated Persistent Volume
+    log_info "Cleaning up associated Persistent Volume (if exists)..."
+    local pv_name
+    pv_name=$(oc get pvc minio -n "$PERF_TEST_NAMESPACE" -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
+    if [ -n "$pv_name" ] && oc get pv "$pv_name" &>/dev/null; then
+        local pv_status
+        pv_status=$(oc get pv "$pv_name" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [ "$pv_status" = "Released" ] || [ "$pv_status" = "Available" ]; then
+            log_info "Deleting PV $pv_name (status: $pv_status)..."
+            oc delete pv "$pv_name" --ignore-not-found=true || true
+        else
+            log_warn "PV $pv_name exists but status is $pv_status, skipping deletion"
+        fi
+    fi
+    
+    # Check for orphaned PVs that might be related
+    local orphaned_pvs
+    orphaned_pvs=$(oc get pv --no-headers 2>/dev/null | grep -E "minio|${PERF_TEST_NAMESPACE}" | awk '{print $1}' || true)
+    if [ -n "$orphaned_pvs" ]; then
+        while IFS= read -r pv; do
+            [ -z "$pv" ] && continue
+            local pv_status
+            pv_status=$(oc get pv "$pv" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            if [ "$pv_status" = "Released" ] || [ "$pv_status" = "Available" ]; then
+                log_info "Deleting orphaned PV $pv (status: $pv_status)..."
+                oc delete pv "$pv" --ignore-not-found=true || true
+            fi
+        done <<< "$orphaned_pvs"
+    fi
+    
+    # Verify cleanup is complete
+    log_info "Verifying cleanup is complete..."
+    if oc get pvc minio -n "$PERF_TEST_NAMESPACE" &>/dev/null; then
+        log_error "MinIO PVC still exists after cleanup attempts"
+        return 1
+    else
+        log_info "MinIO PVC deleted successfully"
+    fi
     
     log_info "Tempo state reset complete. All resources deleted."
 }
@@ -322,6 +397,8 @@ convert_mb_to_tps() {
     
     # Calculate TPS: bytes_per_sec / (weighted_avg_spans * bytes_per_span) * multiplier
     tps=$(echo "scale=0; ($bytes_per_sec / ($weighted_avg_spans * $bytes_per_span)) * $tps_multiplier" | bc)
+    # Convert to integer (bc may output decimals even with scale=0)
+    tps=$(printf "%.0f" "$tps")
     
     # Ensure at least 1 TPS
     if [ "$tps" -lt 1 ]; then
@@ -355,6 +432,8 @@ generate_containers_yaml() {
         # Calculate TPS for this service based on weight
         # service_tps = total_tps * weight / 100
         service_tps=$(echo "$total_tps * $weight / 100" | bc)
+        # Convert to integer (bc may output decimals)
+        service_tps=$(printf "%.0f" "$service_tps")
         
         # Ensure at least 1 TPS per service
         if [ "$service_tps" -lt 1 ]; then
@@ -466,15 +545,33 @@ generate_query_configmap() {
         fi
     fi
     
-    local namespace tempo_host tenant_id delay concurrent_queries
+    local namespace tempo_host tenant_id delay concurrent_queries qps_multiplier burst_multiplier
     namespace=$(yq eval '.namespace' "$CONFIG_FILE")
     tempo_host=$(yq eval '.tempo.host' "$CONFIG_FILE")
     tenant_id=$(yq eval '.tenants[0].id' "$CONFIG_FILE")
     delay=$(yq eval '.queryGenerator.delay // "5s"' "$CONFIG_FILE")
-    concurrent_queries=$(yq eval '.queryGenerator.concurrentQueries // 1' "$CONFIG_FILE")
+    
+    # Read concurrentQueries: prefer load-specific, fallback to global default
+    concurrent_queries=$(yq eval ".loads[] | select(.name == \"$load_name\") | .concurrentQueries // empty" "$CONFIG_FILE")
+    if [ -z "$concurrent_queries" ] || [ "$concurrent_queries" = "null" ]; then
+        concurrent_queries=$(yq eval '.queryGenerator.concurrentQueries // 5' "$CONFIG_FILE")
+    fi
+    
+    # Read qpsMultiplier: load-specific (default: 1.0)
+    qps_multiplier=$(yq eval ".loads[] | select(.name == \"$load_name\") | .qpsMultiplier // 1.0" "$CONFIG_FILE")
+    if [ -z "$qps_multiplier" ] || [ "$qps_multiplier" = "null" ]; then
+        qps_multiplier=1.0
+    fi
+    
+    # Read burstMultiplier: global default (default: 2.0)
+    burst_multiplier=$(yq eval '.queryGenerator.burstMultiplier // 2.0' "$CONFIG_FILE")
+    if [ -z "$burst_multiplier" ] || [ "$burst_multiplier" = "null" ]; then
+        burst_multiplier=2.0
+    fi
     
     # Debug: log values being used
-    log_info "Config values: namespace=$namespace, tempo_host=$tempo_host, tenant_id=$tenant_id, delay=$delay, concurrent_queries=$concurrent_queries"
+    log_info "Config values: namespace=$namespace, tempo_host=$tempo_host, tenant_id=$tenant_id, delay=$delay"
+    log_info "Query config: concurrent_queries=$concurrent_queries, qps_multiplier=$qps_multiplier, burst_multiplier=$burst_multiplier"
     
     # Read the base query generator config
     local base_config="${PROJECT_ROOT}/generators/query-generator/config.yaml"
@@ -499,6 +596,8 @@ generate_query_configmap() {
     if ! yq eval ".query.targetQPS = ${query_qps}" "$base_config" | \
          yq eval ".query.delay = \"$delay\"" - | \
          yq eval ".query.concurrentQueries = ${concurrent_queries}" - | \
+         yq eval ".query.qpsMultiplier = ${qps_multiplier}" - | \
+         yq eval ".query.burstMultiplier = ${burst_multiplier}" - | \
          yq eval ".tempo.queryEndpoint = \"https://${tempo_host}-gateway:8080\"" - | \
          yq eval ".namespace = \"$namespace\"" - | \
          yq eval ".tenantId = \"$tenant_id\"" - | \
@@ -623,6 +722,8 @@ deploy_generators() {
         nspans=$(read_service_config "$i" "nspans")
         weight=$(read_service_config "$i" "weight")
         service_tps=$(echo "$total_tps * $weight / 100" | bc)
+        # Convert to integer (bc may output decimals)
+        service_tps=$(printf "%.0f" "$service_tps")
         [ "$service_tps" -lt 1 ] && service_tps=1
         log_info "  - $service_name: ${service_tps} TPS, depth=$depth, spans=$nspans (${weight}%)"
     done

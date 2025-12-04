@@ -188,29 +188,62 @@ collect_query_latencies() {
 #
 collect_resource_metrics() {
     local duration_minutes="${1:-30}"
-    local rate_window
-    rate_window=$(get_rate_window "$duration_minutes")
     
-    log_info "Collecting resource utilization metrics (using ${rate_window} rate window)..."
+    log_info "Collecting resource utilization metrics over ${duration_minutes} minute test range..."
     
-    # CPU usage (cores) for tempo pods
+    # Calculate test time range (same as collect_timeseries_data)
+    local end_time start_time
+    end_time=$(date +%s)
+    start_time=$((end_time - duration_minutes * 60))
+    
+    # CPU time-series using range query
     local cpu_response
-    cpu_response=$(prom_query "sum(rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[${rate_window}]))")
-    AVG_CPU=$(extract_value "$cpu_response" "0")
+    cpu_response=$(prom_range_query \
+        "sum(rate(container_cpu_usage_seconds_total{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"}[5m]))" \
+        "$start_time" "$end_time" "60")
     
-    # Memory usage (bytes) for tempo pods
+    # Extract CPU stats (avg, max, min) from time-series
+    local cpu_stats
+    cpu_stats=$(echo "$cpu_response" | jq -r '
+        .data.result[0].values // [] | 
+        map(.[1] | tonumber) | 
+        if length > 0 then {
+            avg: (add / length),
+            max: max,
+            min: min
+        } else {
+            avg: 0, max: 0, min: 0
+        } end
+    ')
+    AVG_CPU=$(echo "$cpu_stats" | jq -r '.avg')
+    MAX_CPU=$(echo "$cpu_stats" | jq -r '.max')
+    MIN_CPU=$(echo "$cpu_stats" | jq -r '.min')
+    
+    # Memory time-series using range query
     local mem_response
-    mem_response=$(prom_query "sum(container_memory_working_set_bytes{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"})")
-    MEM_BYTES=$(extract_value "$mem_response" "0")
+    mem_response=$(prom_range_query \
+        "sum(container_memory_working_set_bytes{namespace=\"${PERF_TEST_NAMESPACE}\", container=~\"tempo.*\"})" \
+        "$start_time" "$end_time" "60")
     
-    # Convert memory to GB
-    if [ "$MEM_BYTES" != "0" ]; then
-        MAX_MEMORY_GB=$(echo "scale=2; $MEM_BYTES / 1073741824" | bc 2>/dev/null || echo "0")
-    else
-        MAX_MEMORY_GB="0"
-    fi
+    # Extract Memory stats (avg, max, min) from time-series, convert to GB
+    local mem_stats
+    mem_stats=$(echo "$mem_response" | jq -r '
+        .data.result[0].values // [] | 
+        map((.[1] | tonumber) / 1073741824) | 
+        if length > 0 then {
+            avg: (add / length),
+            max: max,
+            min: min
+        } else {
+            avg: 0, max: 0, min: 0
+        } end
+    ')
+    AVG_MEMORY_GB=$(echo "$mem_stats" | jq -r '.avg')
+    MAX_MEMORY_GB=$(echo "$mem_stats" | jq -r '.max')
+    MIN_MEMORY_GB=$(echo "$mem_stats" | jq -r '.min')
     
-    log_info "Resources - CPU: ${AVG_CPU} cores, Memory: ${MAX_MEMORY_GB} GB"
+    log_info "Resources - CPU: Avg=${AVG_CPU}, Max=${MAX_CPU}, Min=${MIN_CPU} cores"
+    log_info "Resources - Memory: Avg=${AVG_MEMORY_GB}, Max=${MAX_MEMORY_GB}, Min=${MIN_MEMORY_GB} GB"
 }
 
 #
@@ -271,7 +304,12 @@ collect_error_metrics() {
     dropped_response=$(prom_query "sum(rate(tempo_distributor_spans_dropped_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[${rate_window}]))")
     DROPPED_SPANS=$(extract_value "$dropped_response" "0")
     
-    log_info "Errors - Query failures/sec: ${QUERY_FAILURES}, Error rate: ${ERROR_RATE}%, Dropped spans/sec: ${DROPPED_SPANS}"
+    # Discarded spans
+    local discarded_response
+    discarded_response=$(prom_query "sum(rate(tempo_discarded_spans_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[${rate_window}]))")
+    DISCARDED_SPANS=$(extract_value "$discarded_response" "0")
+    
+    log_info "Errors - Query failures/sec: ${QUERY_FAILURES}, Error rate: ${ERROR_RATE}%, Dropped spans/sec: ${DROPPED_SPANS}, Discarded spans/sec: ${DISCARDED_SPANS}"
     log_info "Actual QPS: ${ACTUAL_QPS}"
 }
 
@@ -382,6 +420,13 @@ collect_timeseries_data() {
         "$start_time" "$end_time" "60")
     TS_DROPPED=$(extract_timeseries "$dropped_response")
     
+    # Discarded spans time-series
+    local discarded_response
+    discarded_response=$(prom_range_query \
+        "sum(rate(tempo_discarded_spans_total{namespace=\"${PERF_TEST_NAMESPACE}\"}[1m]))" \
+        "$start_time" "$end_time" "60")
+    TS_DISCARDED=$(extract_timeseries "$discarded_response")
+    
     # Average spans returned per query time-series (sum/count from histogram)
     local spans_ret_sum_response spans_ret_count_response
     spans_ret_sum_response=$(prom_range_query \
@@ -478,12 +523,23 @@ calculate_resource_recommendations() {
         PEAK_MEMORY_GB="$MAX_MEMORY_GB"
     fi
     
-    # Sustained CPU from time-series (average value, excluding first 2 samples for ramp-up)
+    # Sustained CPU: use 95th percentile of the stable period
+    # Exclude first 20% (ramp-up) and last 20% (ramp-down) to get peak sustained load
     if [ "$TS_CPU" != "[]" ] && [ -n "$TS_CPU" ]; then
-        # Skip first 2 samples to exclude ramp-up period
         SUSTAINED_CPU=$(echo "$TS_CPU" | jq '
-            if length > 2 then .[2:] else . end |
-            [.[].value] | add / length
+            . as $arr | 
+            ($arr | length) as $len |
+            if $len > 5 then
+                # Skip first 20% and last 20% to focus on stable period
+                ($len * 0.2 | floor) as $skip_start |
+                ($len * 0.8 | floor) as $end |
+                $arr[$skip_start:$end] | [.[].value] | sort | 
+                # 95th percentile of the stable period
+                .[((length * 0.95) | floor)]
+            else
+                # For short tests, just use 95th percentile of all data
+                [.[].value] | sort | .[((length * 0.95) | floor)]
+            end
         ' 2>/dev/null || echo "$AVG_CPU")
     else
         SUSTAINED_CPU="$AVG_CPU"
@@ -499,7 +555,7 @@ calculate_resource_recommendations() {
     # Round up memory to nearest 0.5 GB
     RECOMMENDED_MEMORY_GB=$(echo "scale=1; x=$RECOMMENDED_MEMORY_GB * 2; scale=0; x=x+0.9; x/=1; scale=1; x/2" | bc 2>/dev/null || echo "0.5")
     
-    log_info "Peak Memory: ${PEAK_MEMORY_GB} GB, Sustained CPU: ${SUSTAINED_CPU} cores"
+    log_info "Peak Memory: ${PEAK_MEMORY_GB} GB, Sustained CPU (p95 stable): ${SUSTAINED_CPU} cores"
     log_info "Recommended (with 20% margin) - CPU: ${RECOMMENDED_CPU} cores, Memory: ${RECOMMENDED_MEMORY_GB} GB"
 }
 
@@ -521,7 +577,11 @@ write_metrics_json() {
         --argjson p99 "${P99_LATENCY:-0}" \
         --argjson avg_latency "${AVG_LATENCY:-0}" \
         --argjson cpu "${AVG_CPU:-0}" \
-        --argjson mem "${MAX_MEMORY_GB:-0}" \
+        --argjson max_cpu "${MAX_CPU:-0}" \
+        --argjson min_cpu "${MIN_CPU:-0}" \
+        --argjson avg_mem "${AVG_MEMORY_GB:-0}" \
+        --argjson max_mem "${MAX_MEMORY_GB:-0}" \
+        --argjson min_mem "${MIN_MEMORY_GB:-0}" \
         --argjson sustained_cpu "${SUSTAINED_CPU:-0}" \
         --argjson peak_memory "${PEAK_MEMORY_GB:-0}" \
         --argjson recommended_cpu "${RECOMMENDED_CPU:-0}" \
@@ -531,6 +591,7 @@ write_metrics_json() {
         --argjson failures "${QUERY_FAILURES:-0}" \
         --argjson error_rate "${ERROR_RATE:-0}" \
         --argjson dropped "${DROPPED_SPANS:-0}" \
+        --argjson discarded "${DISCARDED_SPANS:-0}" \
         --argjson avg_spans_returned "${AVG_SPANS_RETURNED:-0}" \
         --argjson actual_qps "${ACTUAL_QPS:-0}" \
         --argjson ts_cpu "${TS_CPU:-[]}" \
@@ -542,6 +603,7 @@ write_metrics_json() {
         --argjson ts_p99 "${TS_P99:-[]}" \
         --argjson ts_failures "${TS_FAILURES:-[]}" \
         --argjson ts_dropped "${TS_DROPPED:-[]}" \
+        --argjson ts_discarded "${TS_DISCARDED:-[]}" \
         --argjson ts_spans_returned "${TS_SPANS_RETURNED:-[]}" \
         --argjson ts_qps "${TS_QPS:-[]}" \
         --argjson ts_cpu_per_container "${TS_CPU_PER_CONTAINER:-[]}" \
@@ -558,7 +620,11 @@ write_metrics_json() {
             },
             resources: {
               avg_cpu_cores: $cpu,
-              max_memory_gb: $mem,
+              max_cpu_cores: $max_cpu,
+              min_cpu_cores: $min_cpu,
+              avg_memory_gb: $avg_mem,
+              max_memory_gb: $max_mem,
+              min_memory_gb: $min_mem,
               sustained_cpu_cores: $sustained_cpu,
               peak_memory_gb: $peak_memory
             },
@@ -574,7 +640,8 @@ write_metrics_json() {
             errors: {
               query_failures_per_second: $failures,
               error_rate_percent: $error_rate,
-              dropped_spans_per_second: $dropped
+              dropped_spans_per_second: $dropped,
+              discarded_spans_per_second: $discarded
             },
             query_results: {
               avg_spans_returned: $avg_spans_returned,
@@ -592,6 +659,7 @@ write_metrics_json() {
             p99_latency_seconds: $ts_p99,
             query_failures_per_second: $ts_failures,
             dropped_spans_per_second: $ts_dropped,
+            discarded_spans_per_second: $ts_discarded,
             avg_spans_returned: $ts_spans_returned,
             qps: $ts_qps
           },
@@ -639,7 +707,11 @@ main() {
     P99_LATENCY="0"
     AVG_LATENCY="0"
     AVG_CPU="0"
+    MAX_CPU="0"
+    MIN_CPU="0"
+    AVG_MEMORY_GB="0"
     MAX_MEMORY_GB="0"
+    MIN_MEMORY_GB="0"
     SUSTAINED_CPU="0"
     PEAK_MEMORY_GB="0"
     RECOMMENDED_CPU="0"
@@ -649,6 +721,7 @@ main() {
     QUERY_FAILURES="0"
     ERROR_RATE="0"
     DROPPED_SPANS="0"
+    DISCARDED_SPANS="0"
     TOTAL_QUERIES="0"
     AVG_SPANS_RETURNED="0"
     ACTUAL_QPS="0"
@@ -663,6 +736,7 @@ main() {
     TS_P99="[]"
     TS_FAILURES="[]"
     TS_DROPPED="[]"
+    TS_DISCARDED="[]"
     TS_SPANS_RETURNED="[]"
     TS_CPU_PER_CONTAINER="[]"
     TS_MEMORY_PER_CONTAINER="[]"
