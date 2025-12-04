@@ -1,0 +1,1122 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-11-30T18:47:18Z",
+    "cluster": {
+      "name": "tempo-perf-test/api-crc-testing:6443/kubeadmin",
+      "server": "https://api.crc.testing:6443"
+    },
+    "tool_version": "1.0.0"
+  },
+  "test_results": [
+    {
+      "timestamp": "2025-11-30T17:45:12Z",
+      "load_name": "high",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 0.4636085626911314,
+          "p90_seconds": 1.0766375545851439,
+          "p99_seconds": 2.366506550218338,
+          "avg_seconds": 0.547780
+        },
+        "resources": {
+          "avg_cpu_cores": 8.515813589195266,
+          "max_cpu_cores": 8.539935109576774,
+          "min_cpu_cores": 8.491692068813759,
+          "avg_memory_gb": 3.4042510986328125,
+          "max_memory_gb": 3.519428253173828,
+          "min_memory_gb": 3.289073944091797,
+          "sustained_cpu_cores": 8.539935109576774,
+          "peak_memory_gb": 3.519428253173828
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 10.3,
+          "memory_gb": 4.5
+        },
+        "throughput": {
+          "spans_per_second": 36300.8,
+          "bytes_per_second": 3985048.1999999997
+        },
+        "errors": {
+          "query_failures_per_second": 0.017241379310344827,
+          "error_rate_percent": 0.0200,
+          "dropped_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 2690.82,
+          "actual_qps": 75.44827586206894
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764524652,
+            "value": 8.539935109576774
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 8.491692068813759
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764524652,
+            "value": 3.289073944091797
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 3.519428253173828
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764524652,
+            "value": 36556.8
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 36300.8
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764524652,
+            "value": 4011712.8333333335
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 3985048.1999999997
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764524652,
+            "value": 0.47273303741280914
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 0.4636085626911314
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764524652,
+            "value": 0.9914285714285704
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 1.0766375545851439
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764524652,
+            "value": 2.346479217603908
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 2.366506550218338
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764524652,
+            "value": 0
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 0.017241379310344827
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764524652,
+            "value": 2687.9899657924752
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 2690.825679689286
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764524652,
+            "value": 75.62068965517238
+          },
+          {
+            "timestamp": 1764524712,
+            "value": 75.44827586206894
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 8.054757722023618
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 8.008646617195998
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 0.3260287827645658
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 0.32386256052291773
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 0.15914793407182778
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 0.15918216966580953
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 6.707167640495811E-7
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 7.214290342786811E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 3.1697158813476562
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 3.3945960998535156
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 0.09098434448242188
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 0.09667587280273438
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 0.023590087890625
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 0.023372650146484375
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764524652,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764524712,
+                "value": 0.00478363037109375
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 4.0,
+        "duration_minutes": 1,
+        "target_qps": 75
+      }
+    },
+    {
+      "timestamp": "2025-11-30T15:41:08Z",
+      "load_name": "low",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 0.594188376753507,
+          "p90_seconds": 1.8242902208201892,
+          "p99_seconds": 2.4409463722397478,
+          "avg_seconds": 0.657971
+        },
+        "resources": {
+          "avg_cpu_cores": 9.409925596111364,
+          "max_cpu_cores": 9.517015032261236,
+          "min_cpu_cores": 9.30283615996149,
+          "avg_memory_gb": 3.907003402709961,
+          "max_memory_gb": 4.088661193847656,
+          "min_memory_gb": 3.7253456115722656,
+          "sustained_cpu_cores": 9.517015032261236,
+          "peak_memory_gb": 4.088661193847656
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 11.5,
+          "memory_gb": 5.0
+        },
+        "throughput": {
+          "spans_per_second": 6972.266666666666,
+          "bytes_per_second": 765085.2666666666
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 5829.22,
+          "actual_qps": 24.96551724137931
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764517207,
+            "value": 9.30283615996149
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 9.517015032261236
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764517207,
+            "value": 4.088661193847656
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 3.7253456115722656
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764517207,
+            "value": 7014.4
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 6972.266666666666
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764517207,
+            "value": 768293.3333333334
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 765085.2666666666
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764517207,
+            "value": 1.967517401392111
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 0.5982142857142859
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764517207,
+            "value": 4.158476658476658
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 1.8289719626168235
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764517207,
+            "value": 4.954545454545455
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 2.441308411214954
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764517207,
+            "value": 0
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 0
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764517207,
+            "value": 6717.975000000002
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 5822.265109890108
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764517207,
+            "value": 24.827586206896548
+          },
+          {
+            "timestamp": 1764517267,
+            "value": 25.10344827586207
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 9.155745491994734
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 9.370455160855167
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 0.1041541070550244
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 0.1041259408558544
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 0.04293561488037389
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 0.04243296886826599
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 9.460313576773279E-7
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 9.616819485665947E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 3.9623680114746094
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 3.6065750122070312
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 0.09975814819335938
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 0.09236907958984375
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 0.021770477294921875
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 0.021636962890625
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764517208,
+                "value": 0.004764556884765625
+              },
+              {
+                "timestamp": 1764517268,
+                "value": 0.004764556884765625
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 0.7,
+        "duration_minutes": 1,
+        "target_qps": 25
+      }
+    },
+    {
+      "timestamp": "2025-11-30T16:43:12Z",
+      "load_name": "medium",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 0.1771905424200278,
+          "p90_seconds": 0.731188118811881,
+          "p99_seconds": 1.909729729729732,
+          "avg_seconds": 0.259270
+        },
+        "resources": {
+          "avg_cpu_cores": 6.7231934220247265,
+          "max_cpu_cores": 6.7584895753850605,
+          "min_cpu_cores": 6.687897268664392,
+          "avg_memory_gb": 4.307672500610352,
+          "max_memory_gb": 4.371585845947266,
+          "min_memory_gb": 4.2437591552734375,
+          "sustained_cpu_cores": 6.7584895753850605,
+          "peak_memory_gb": 4.371585845947266
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 8.2,
+          "memory_gb": 5.5
+        },
+        "throughput": {
+          "spans_per_second": 14729.5,
+          "bytes_per_second": 1616358.7666666666
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 2846.43,
+          "actual_qps": 50.20689655172413
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764520931,
+            "value": 6.7584895753850605
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 6.687897268664392
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764520931,
+            "value": 4.2437591552734375
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 4.371585845947266
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764520931,
+            "value": 18090.666666666668
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 14729.5
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764520931,
+            "value": 1986281.7666666666
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 1616358.7666666666
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764520931,
+            "value": 0.3676125703564729
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 0.1771905424200278
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764520931,
+            "value": 0.923491379310345
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 0.731188118811881
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764520931,
+            "value": 2.2622252747252753
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 1.909729729729732
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764520931,
+            "value": 0
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 0
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764520931,
+            "value": 3164.262829403606
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 2846.4355891446244
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764520931,
+            "value": 49.74137931034483
+          },
+          {
+            "timestamp": 1764520991,
+            "value": 50.20689655172413
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 6.460257079711833
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 6.390895755162364
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 0.20876235223418632
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 0.20756016416383888
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 0.08946942647065119
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 0.08944061583577698
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 7.169683908644828E-7
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 7.335024118553885E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 4.119754791259766
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 4.248329162597656
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 0.09452438354492188
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 0.09397125244140625
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 0.026081085205078125
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 0.02588653564453125
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764520932,
+                "value": 0.003398895263671875
+              },
+              {
+                "timestamp": 1764520992,
+                "value": 0.003398895263671875
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 2.0,
+        "duration_minutes": 1,
+        "target_qps": 50
+      }
+    },
+    {
+      "timestamp": "2025-11-30T18:47:18Z",
+      "load_name": "very-high",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 2.0598536737235364,
+          "p90_seconds": 4.1854892761394105,
+          "p99_seconds": 4.920056970509384,
+          "avg_seconds": 2.233019
+        },
+        "resources": {
+          "avg_cpu_cores": 8.227090919791792,
+          "max_cpu_cores": 8.228311292653883,
+          "min_cpu_cores": 8.225870546929702,
+          "avg_memory_gb": 3.586252212524414,
+          "max_memory_gb": 3.618114471435547,
+          "min_memory_gb": 3.5543899536132812,
+          "sustained_cpu_cores": 8.228311292653883,
+          "peak_memory_gb": 3.618114471435547
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 9.9,
+          "memory_gb": 4.5
+        },
+        "throughput": {
+          "spans_per_second": 63982.933333333334,
+          "bytes_per_second": 7023764.333333333
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 2391.89,
+          "actual_qps": 83.98275862068964
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764528377,
+            "value": 8.225870546929702
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 8.228311292653883
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764528377,
+            "value": 3.5543899536132812
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 3.618114471435547
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764528377,
+            "value": 63573.333333333336
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 63982.933333333334
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764528377,
+            "value": 6975044.8
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 7023764.333333333
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764528377,
+            "value": 2.9703404703404703
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 2.0598536737235364
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764528377,
+            "value": 4.608108108108109
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 4.1854892761394105
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764528377,
+            "value": 4.976605826605827
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 4.920056970509384
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764528377,
+            "value": 0.017241379310344827
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 0
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764528377,
+            "value": 2054.095585083583
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 2391.8998152330123
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764528377,
+            "value": 80.44827586206898
+          },
+          {
+            "timestamp": 1764528437,
+            "value": 83.98275862068964
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 7.614388106194682
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 7.6136518197972975
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 0.3890057030286146
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 0.3894906964543338
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 0.2224759410731872
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 0.22516796924710714
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 7.966332188005448E-7
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 8.071551450025694E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 3.3673744201660156
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 3.4396209716796875
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 0.15186691284179688
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 0.14409255981445312
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 0.030384063720703125
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 0.029636383056640625
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764528378,
+                "value": 0.004764556884765625
+              },
+              {
+                "timestamp": 1764528438,
+                "value": 0.004764556884765625
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 7.0,
+        "duration_minutes": 1,
+        "target_qps": 75
+      }
+    }
+  ],
+  "summary": {
+    "total_tests": 4,
+    "avg_spans_per_second": 30496.37,
+    "p99_latency_range": {
+      "min_seconds": 1.909729729729732,
+      "max_seconds": 4.920056970509384
+    },
+    "cpu_cores": {
+      "avg_cpu": {
+        "avg": 8.219,
+        "max": 9.409925596111364,
+        "min": 6.7231934220247265
+      },
+      "max_cpu": {
+        "avg": 8.260,
+        "max": 9.517015032261236,
+        "min": 6.7584895753850605
+      },
+      "min_cpu": {
+        "avg": 8.177,
+        "max": 9.30283615996149,
+        "min": 6.687897268664392
+      }
+    },
+    "memory_gb": {
+      "avg_memory": {
+        "avg": 3.801,
+        "max": 4.307672500610352,
+        "min": 3.4042510986328125
+      },
+      "max_memory": {
+        "avg": 3.899,
+        "max": 4.371585845947266,
+        "min": 3.519428253173828
+      },
+      "min_memory": {
+        "avg": 3.703,
+        "max": 4.2437591552734375,
+        "min": 3.289073944091797
+      }
+    }
+  }
+}

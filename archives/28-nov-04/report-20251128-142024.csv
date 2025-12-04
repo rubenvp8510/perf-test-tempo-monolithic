@@ -1,0 +1,2 @@
+load_name,tps,duration_min,p50_latency_ms,p90_latency_ms,p99_latency_ms,avg_cpu_cores,max_memory_gb,sustained_cpu_cores,peak_memory_gb,recommended_cpu,recommended_memory_gb,spans_per_sec,bytes_per_sec,query_failures_per_sec,error_rate_percent,dropped_spans_per_sec,timestamp
+low,0,5,86.82926829268295000,337.71929824561414000,786.7647058823536000,0,1.36,0.32379875723447094,1.3633537292480469,0.4,2.0,7048.533333333333,773113.6333333333,0,0,0,2025-11-28T20:20:24Z

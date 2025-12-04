@@ -1,0 +1,2440 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-12-02T21:14:38Z",
+    "cluster": {
+      "name": "default/api-crc-testing:6443/kubeadmin",
+      "server": "https://api.crc.testing:6443"
+    },
+    "tool_version": "1.0.0"
+  },
+  "test_results": [
+    {
+      "timestamp": "2025-12-02T21:07:40Z",
+      "load_name": "high",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 1.43750226188082,
+          "p90_seconds": 3.473950026033127,
+          "p99_seconds": 6.850746268656835,
+          "avg_seconds": 1.589776
+        },
+        "resources": {
+          "avg_cpu_cores": 6.106269901152127,
+          "max_cpu_cores": 9.795910501736229,
+          "min_cpu_cores": 3.7055381547468684,
+          "avg_memory_gb": 4.713330586751302,
+          "max_memory_gb": 7.011028289794922,
+          "min_memory_gb": 1.6004447937011719,
+          "sustained_cpu_cores": 5.944715880169131,
+          "peak_memory_gb": 7.011028289794922
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 7.2,
+          "memory_gb": 8.5
+        },
+        "throughput": {
+          "spans_per_second": 30566.733333333334,
+          "bytes_per_second": 3352989.033333333
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0,
+          "discarded_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 2223.72,
+          "actual_qps": 72.75862068965519
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764709360,
+            "value": 3.6886972411326058
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 3.94870596925626
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 5.346072543916971
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 5.944715880169131
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 7.948933922517439
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 9.797188323270328
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764709360,
+            "value": 1.6004447937011719
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 4.943809509277344
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 4.001827239990234
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 4.863914489746094
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 5.858959197998047
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 7.011028289794922
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764709420,
+            "value": 15957.333333333334
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 28605.833333333332
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 34679.46666666667
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 36010.666666666664
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 30566.733333333334
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764709420,
+            "value": 1748959.1333333333
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 3132747.9
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 3806386.966666667
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 3951772.5
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 3352989.033333333
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764709360,
+            "value": 5.833333333333333
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 4.165741375618546
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 0.9833608267293282
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 1.3075935955024909
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 1.4951678535096646
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 1.4373798552999772
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764709360,
+            "value": 9.166666666666668
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 8.888711849579284
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 2.7786581737529104
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 3.5418006430868125
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 3.7757092198581574
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 3.4736327145827346
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764709360,
+            "value": 9.916666666666668
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 10
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 4.854244332890943
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 5.720833333333244
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 8.395199999999999
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 6.850746268656757
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764709480,
+            "value": 0.01776166666666667
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 0
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "discarded_spans_per_second": [
+          {
+            "timestamp": 1764709420,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 0
+          }
+        ],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764709360,
+            "value": 7572.913415364842
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 6642.379351740697
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 2340.6853855005756
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 2194.38928136419
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 2090.6169576059847
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 2223.7261312485193
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764709360,
+            "value": 0.99275
+          },
+          {
+            "timestamp": 1764709420,
+            "value": 28.689655172413786
+          },
+          {
+            "timestamp": 1764709480,
+            "value": 74.96551724137927
+          },
+          {
+            "timestamp": 1764709540,
+            "value": 70.82758620689653
+          },
+          {
+            "timestamp": 1764709600,
+            "value": 69.17241379310344
+          },
+          {
+            "timestamp": 1764709660,
+            "value": 72.75862068965516
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709420,
+                "value": 1.237162899859888
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 3.709202284294267
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 5.755204951147732
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 7.668729305218564
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 9.417140282030454
+              }
+            ]
+          },
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 3.5468419406634033
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 2.5891977289026435
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 1.545448863565338
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709420,
+                "value": 0.020975955957993477
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 0.06129255743522793
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 0.12417862080386298
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 0.1817046920625784
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 0.2463857879226625
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 0.09805495948528888
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 0.064695591795028
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709420,
+                "value": 0.009896641382988023
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 0.030128259749332205
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 0.06533150527808931
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 0.09849906711034362
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 0.13366142893327185
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 0.04379998022324138
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 0.026776498991679127
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709420,
+                "value": 4.183147000221356E-7
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 5.788728061327386E-7
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 8.029394466876962E-7
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 8.581259528947083E-7
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 8.243839401096258E-7
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 3.6076067232998187E-7
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 2.340513398619657E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 1.5711898803710938
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 4.846721649169922
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 3.898021697998047
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 4.751594543457031
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 5.744354248046875
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 6.893154144287109
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 0.017421722412109375
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 0.0770416259765625
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 0.07593917846679688
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 0.084564208984375
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 0.08611679077148438
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 0.08916473388671875
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 0.008731842041015625
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 0.01694488525390625
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 0.0247650146484375
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 0.024654388427734375
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 0.025386810302734375
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 0.025608062744140625
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709360,
+                "value": 0.003101348876953125
+              },
+              {
+                "timestamp": 1764709420,
+                "value": 0.003101348876953125
+              },
+              {
+                "timestamp": 1764709480,
+                "value": 0.003101348876953125
+              },
+              {
+                "timestamp": 1764709540,
+                "value": 0.003101348876953125
+              },
+              {
+                "timestamp": 1764709600,
+                "value": 0.003101348876953125
+              },
+              {
+                "timestamp": 1764709660,
+                "value": 0.003101348876953125
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 4.0,
+        "duration_minutes": 5,
+        "target_qps": 80
+      }
+    },
+    {
+      "timestamp": "2025-12-02T20:53:52Z",
+      "load_name": "low",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 0.2744252873563222,
+          "p90_seconds": 0.9115740740740741,
+          "p99_seconds": 2.0536206896551743,
+          "avg_seconds": 0.379805
+        },
+        "resources": {
+          "avg_cpu_cores": 1.6318681268558273,
+          "max_cpu_cores": 4.091702555569738,
+          "min_cpu_cores": 0.011546480390983414,
+          "avg_memory_gb": 1.2095006306966145,
+          "max_memory_gb": 1.7180824279785156,
+          "min_memory_gb": 0.3107719421386719,
+          "sustained_cpu_cores": 1.8860993877196621,
+          "peak_memory_gb": 1.7180824279785156
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 2.3,
+          "memory_gb": 2.5
+        },
+        "throughput": {
+          "spans_per_second": 7082.666666666667,
+          "bytes_per_second": 778763.5666666667
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0,
+          "discarded_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 10277.62,
+          "actual_qps": 14.87931034482759
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764708532,
+            "value": 0.011546480390983414
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 0.02566808482262206
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 0.8893833113139656
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 1.8860993877196621
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 2.886808941317994
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 4.091702555569738
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764708532,
+            "value": 0.3107719421386719
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 0.32968902587890625
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 1.5784454345703125
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 1.652496337890625
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 1.6675186157226562
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 1.7180824279785156
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764708592,
+            "value": 7014.4
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 7048.533333333333
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 7048.533333333333
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 7048.533333333333
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 7082.666666666667
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764708592,
+            "value": 769310.1666666666
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 773406.4333333333
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 772400.5
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 772660.3333333334
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 778763.5666666667
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764708532,
+            "value": 0.0036459469992205775
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 0.024500000000000015
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 0.068452380952381
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 0.14553571428571457
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 0.17265625000000018
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 0.2744252873563222
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764708532,
+            "value": 0.008409199115796635
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 0.7198051948051948
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 0.8339357429718877
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 0.8624113475177309
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 0.8685567010309281
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 0.9115740740740741
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764708532,
+            "value": 0.009840919911579666
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 0.9719805194805196
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 0.9906224899598395
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 1.0566666666666922
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 1.202500000000013
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 2.0536206896551743
+          }
+        ],
+        "query_failures_per_second": [],
+        "dropped_spans_per_second": [],
+        "discarded_spans_per_second": [
+          {
+            "timestamp": 1764708592,
+            "value": 0
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 0
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 0
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 0
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 0
+          }
+        ],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764708532,
+            "value": 0
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 6958.741865429233
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 10187.51501154734
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 10189.623556581982
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 10245.444700460825
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 10277.62312138728
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764708532,
+            "value": 2.0790000000000006
+          },
+          {
+            "timestamp": 1764708592,
+            "value": 14.87931034482759
+          },
+          {
+            "timestamp": 1764708652,
+            "value": 14.948275862068972
+          },
+          {
+            "timestamp": 1764708712,
+            "value": 14.931034482758626
+          },
+          {
+            "timestamp": 1764708772,
+            "value": 14.913793103448281
+          },
+          {
+            "timestamp": 1764708832,
+            "value": 14.87931034482759
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.0020576577108716476
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.0014982314365068461
+              }
+            ]
+          },
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.006960012342647673
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.013499561512123937
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.8461524071498994
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 1.818551165697282
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 2.7946313416651942
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 3.979616042010652
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.0008409231825721926
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.0005816957563775458
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.000299893030228543
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708592,
+                "value": 0.00804268630086912
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.027887403211899194
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 0.04745358599314179
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 0.06495265903890024
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 0.08337066885293011
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.00027607026555696087
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.00018781493277417912
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.0014112022703263903
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.0018571883333333332
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.015042943671917521
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 0.020093804888428962
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 0.027224122487784812
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 0.02871515005525982
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 6.146190085492177E-7
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 4.4736986254543267E-7
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708592,
+                "value": 4.591807745589266E-7
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 6.64250020960834E-7
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 8.311408095641649E-7
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 8.181261146540411E-7
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 6.946508964795226E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.2692451477050781
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.2692451477050781
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 1.5071754455566406
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 1.5821418762207031
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 1.5943374633789062
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 1.644744873046875
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.017971038818359375
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.03688812255859375
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.045757293701171875
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 0.044841766357421875
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 0.047069549560546875
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 0.04718780517578125
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.020481109619140625
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.020481109619140625
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.02243804931640625
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 0.02243804931640625
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 0.023036956787109375
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 0.023075103759765625
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708532,
+                "value": 0.00307464599609375
+              },
+              {
+                "timestamp": 1764708592,
+                "value": 0.00307464599609375
+              },
+              {
+                "timestamp": 1764708652,
+                "value": 0.00307464599609375
+              },
+              {
+                "timestamp": 1764708712,
+                "value": 0.00307464599609375
+              },
+              {
+                "timestamp": 1764708772,
+                "value": 0.00307464599609375
+              },
+              {
+                "timestamp": 1764708832,
+                "value": 0.00307464599609375
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 0.7,
+        "duration_minutes": 5,
+        "target_qps": 15
+      }
+    },
+    {
+      "timestamp": "2025-12-02T21:00:45Z",
+      "load_name": "medium",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 0.15438209331651956,
+          "p90_seconds": 0.6816964285714291,
+          "p99_seconds": 0.9922767857142857,
+          "avg_seconds": 0.229836
+        },
+        "resources": {
+          "avg_cpu_cores": 5.238793941131693,
+          "max_cpu_cores": 7.047745946286036,
+          "min_cpu_cores": 3.4338384187774125,
+          "avg_memory_gb": 3.525440216064453,
+          "max_memory_gb": 4.1816558837890625,
+          "min_memory_gb": 2.0220298767089844,
+          "sustained_cpu_cores": 5.494819791341644,
+          "peak_memory_gb": 4.1816558837890625
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 6.6,
+          "memory_gb": 5.0
+        },
+        "throughput": {
+          "spans_per_second": 18124.8,
+          "bytes_per_second": 1986853.5999999999
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0,
+          "discarded_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 3708.33,
+          "actual_qps": 39.98275862068966
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764708945,
+            "value": 3.41853820895831
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 3.8898577349368177
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 5.228097829111715
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 5.494819791341644
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 6.387925428101704
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 7.047745946286036
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764708945,
+            "value": 2.0220298767089844
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 4.1816558837890625
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 3.5839462280273438
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 3.5174407958984375
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 3.7366943359375
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 4.110874176025391
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764709005,
+            "value": 12868.266666666666
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 20343.466666666667
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 18090.666666666668
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 18124.8
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 18124.8
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764709005,
+            "value": 1412412.9333333333
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 2230537.3
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 1985085.5999999999
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 1990056.8
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 1986853.5999999999
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764708945,
+            "value": 2.7014049815073453
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 2.950448709059801
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 1.567690383563395
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 0.1160220994475137
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 0.14028340080971657
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 0.15438209331651956
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764708945,
+            "value": 7.862339068018685
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 6.070588235294116
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 4.788880598189294
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 0.7403846153846139
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 0.6612612612612618
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 0.6816964285714291
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764708945,
+            "value": 9.786233906801868
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 9.60705882352941
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 9.339644970414199
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 2.0259999999999927
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 0.9742342342342347
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 0.9922767857142857
+          }
+        ],
+        "query_failures_per_second": [],
+        "dropped_spans_per_second": [],
+        "discarded_spans_per_second": [
+          {
+            "timestamp": 1764709005,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 0
+          }
+        ],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764708945,
+            "value": 12286.46063263334
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 7414.509000000002
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 5802.7969520394445
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 3888.4555040067485
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 3710.3704663212434
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 3708.335344827586
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764708945,
+            "value": 1.8762250000000007
+          },
+          {
+            "timestamp": 1764709005,
+            "value": 34.551724137931025
+          },
+          {
+            "timestamp": 1764709065,
+            "value": 38.482758620689644
+          },
+          {
+            "timestamp": 1764709125,
+            "value": 40.86206896551723
+          },
+          {
+            "timestamp": 1764709185,
+            "value": 39.93103448275862
+          },
+          {
+            "timestamp": 1764709245,
+            "value": 39.98275862068966
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 3.354439674945513
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 2.5096366943738397
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 1.6134779574564138
+              }
+            ]
+          },
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709005,
+                "value": 1.3120177775273218
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 3.5251570320436696
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 5.344732637296997
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 6.185106354561678
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 6.793175862655531
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 0.045878358785819334
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 0.029774700968268286
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709005,
+                "value": 0.01763348142391267
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 0.059245179375394724
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 0.10141359171543839
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 0.13693382439552246
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 0.17195644635999804
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 0.01821977243441747
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 0.011607290611397526
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709005,
+                "value": 0.009187084240535473
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 0.030217106126742752
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 0.0486729356625421
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 0.06588446126339345
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 0.0826129103919684
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 4.027925603348693E-7
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 2.7170558991850334E-7
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709005,
+                "value": 4.3408595296201155E-7
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 5.541094950520738E-7
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 6.266666666666613E-7
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 7.878811108697684E-7
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 7.268785398564711E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 1.9910049438476562
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 4.095073699951172
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 3.4746055603027344
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 3.4133338928222656
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 3.6326255798339844
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 4.006675720214844
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 0.01802825927734375
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 0.06309890747070312
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 0.081451416015625
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 0.07538604736328125
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 0.07514190673828125
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 0.07520294189453125
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 0.008220672607421875
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 0.018707275390625
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 0.023113250732421875
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 0.023944854736328125
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 0.024150848388671875
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 0.024219512939453125
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764708945,
+                "value": 0.0047760009765625
+              },
+              {
+                "timestamp": 1764709005,
+                "value": 0.0047760009765625
+              },
+              {
+                "timestamp": 1764709065,
+                "value": 0.0047760009765625
+              },
+              {
+                "timestamp": 1764709125,
+                "value": 0.0047760009765625
+              },
+              {
+                "timestamp": 1764709185,
+                "value": 0.0047760009765625
+              },
+              {
+                "timestamp": 1764709245,
+                "value": 0.0047760009765625
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 2.0,
+        "duration_minutes": 5,
+        "target_qps": 40
+      }
+    },
+    {
+      "timestamp": "2025-12-02T21:14:38Z",
+      "load_name": "very-high",
+      "metrics": {
+        "query_latencies": {
+          "p50_seconds": 1.4184535975296921,
+          "p90_seconds": 4.186705889352291,
+          "p99_seconds": 9.188065843621391,
+          "avg_seconds": 1.778302
+        },
+        "resources": {
+          "avg_cpu_cores": 7.117419252693005,
+          "max_cpu_cores": 9.516134939331238,
+          "min_cpu_cores": 5.7971144223155395,
+          "avg_memory_gb": 5.435064315795898,
+          "max_memory_gb": 8.119842529296875,
+          "min_memory_gb": 2.4673500061035156,
+          "sustained_cpu_cores": 6.566324910057515,
+          "peak_memory_gb": 8.119842529296875
+        },
+        "resource_recommendations": {
+          "safety_margin_percent": 20,
+          "cpu_cores": 7.9,
+          "memory_gb": 10.0
+        },
+        "throughput": {
+          "spans_per_second": 26642.6,
+          "bytes_per_second": 2919500.4
+        },
+        "errors": {
+          "query_failures_per_second": 0,
+          "error_rate_percent": 0,
+          "dropped_spans_per_second": 0,
+          "discarded_spans_per_second": 0
+        },
+        "query_results": {
+          "avg_spans_returned": 1952.56,
+          "actual_qps": 71.48275862068964
+        }
+      },
+      "timeseries": {
+        "interval_seconds": 60,
+        "cpu_cores": [
+          {
+            "timestamp": 1764709777,
+            "value": 6.783196833462179
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 6.3557725686517115
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 6.566324910057515
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 5.7971144223155395
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 7.6859718423398515
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 9.516134939331238
+          }
+        ],
+        "memory_gb": [
+          {
+            "timestamp": 1764709777,
+            "value": 2.4673500061035156
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 4.655345916748047
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 5.0143280029296875
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 5.560382843017578
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 6.7931365966796875
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 8.119842529296875
+          }
+        ],
+        "spans_per_second": [
+          {
+            "timestamp": 1764709837,
+            "value": 9062.4
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 27989.333333333332
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 31387.1
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 30516.033333333333
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 26642.6
+          }
+        ],
+        "bytes_per_second": [
+          {
+            "timestamp": 1764709837,
+            "value": 993781.5666666667
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 3069794.8333333335
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 3437587.8333333335
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 3342285.1666666665
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 2919500.4
+          }
+        ],
+        "p50_latency_seconds": [
+          {
+            "timestamp": 1764709777,
+            "value": 3.047078977578659
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 4.3387044105927925
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 1.3970516829100244
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 1.423282188125417
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 1.4667577413479047
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 1.4186627559176528
+          }
+        ],
+        "p90_latency_seconds": [
+          {
+            "timestamp": 1764709777,
+            "value": 8.676879810227781
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 10
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 4.348990760104346
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 4.394736842105265
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 4.313716814159288
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 4.187000210056901
+          }
+        ],
+        "p99_latency_seconds": [
+          {
+            "timestamp": 1764709777,
+            "value": 9.86768798102278
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 10
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 9.319709543568472
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 9.196170212765965
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 9.18239130434781
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 9.188065843621391
+          }
+        ],
+        "query_failures_per_second": [
+          {
+            "timestamp": 1764710077,
+            "value": 0
+          }
+        ],
+        "dropped_spans_per_second": [],
+        "discarded_spans_per_second": [
+          {
+            "timestamp": 1764709837,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 0
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 0
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 0
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 0
+          }
+        ],
+        "avg_spans_returned": [
+          {
+            "timestamp": 1764709777,
+            "value": 490.49769520746383
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 6633.082487274847
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 1895.9835051546388
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 1858.3107096774193
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 1940.3296190722986
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 1952.568740955138
+          }
+        ],
+        "qps": [
+          {
+            "timestamp": 1764709777,
+            "value": 1.7492347222222222
+          },
+          {
+            "timestamp": 1764709837,
+            "value": 25.028336566091955
+          },
+          {
+            "timestamp": 1764709897,
+            "value": 66.8793103448276
+          },
+          {
+            "timestamp": 1764709957,
+            "value": 66.86206896551724
+          },
+          {
+            "timestamp": 1764710017,
+            "value": 66.56896551724137
+          },
+          {
+            "timestamp": 1764710077,
+            "value": 71.48275862068964
+          }
+        ]
+      },
+      "per_container": {
+        "cpu_cores": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709838,
+                "value": 1.5514346946901465
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 3.7378521545191328
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 5.637619901068119
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 7.444374617528498
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 9.161189051887728
+              }
+            ]
+          },
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 6.525277362530528
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 4.617867347831074
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 2.737129656126907
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709838,
+                "value": 0.0202249148244205
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 0.05409001932652725
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 0.12078177169494378
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 0.17466627985864397
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 0.23057705898478026
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 0.14291576413763057
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 0.08824230054071183
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709838,
+                "value": 0.009832705652515499
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 0.03410423096307635
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 0.06498503058294147
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 0.09432916482573662
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 0.12556889706107482
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 0.0843175968660082
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 0.0535159908633919
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709838,
+                "value": 3.835722872971182E-7
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 6.458331009972232E-7
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 6.823112409894083E-7
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 8.084348109490017E-7
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 7.982981147219168E-7
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 3.698421285468931E-7
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 2.33740934350586E-7
+              }
+            ]
+          }
+        ],
+        "memory_gb": [
+          {
+            "container": "tempo",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 2.433551788330078
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 4.559837341308594
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 4.897792816162109
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 5.431453704833984
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 6.667102813720703
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 7.995140075683594
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 0.018463134765625
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 0.0727691650390625
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 0.08838653564453125
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 0.09465789794921875
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 0.09461593627929688
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 0.09101104736328125
+              }
+            ]
+          },
+          {
+            "container": "tempo-gateway-opa",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 0.01055145263671875
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 0.017955780029296875
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 0.023365020751953125
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 0.02948760986328125
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 0.02663421630859375
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 0.02890777587890625
+              }
+            ]
+          },
+          {
+            "container": "tempo-query",
+            "pod": "tempo-simplest-0",
+            "values": [
+              {
+                "timestamp": 1764709778,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764709838,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764709898,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764709958,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764710018,
+                "value": 0.00478363037109375
+              },
+              {
+                "timestamp": 1764710078,
+                "value": 0.00478363037109375
+              }
+            ]
+          }
+        ]
+      },
+      "config": {
+        "mb_per_sec": 7.0,
+        "duration_minutes": 5,
+        "target_qps": 140
+      }
+    }
+  ],
+  "summary": {
+    "total_tests": 4,
+    "avg_spans_per_second": 20604.20,
+    "p99_latency_range": {
+      "min_seconds": 0.9922767857142857,
+      "max_seconds": 9.188065843621391
+    },
+    "cpu_cores": {
+      "avg_cpu": {
+        "avg": 5.023,
+        "max": 7.117419252693005,
+        "min": 1.6318681268558273
+      },
+      "max_cpu": {
+        "avg": 7.612,
+        "max": 9.795910501736229,
+        "min": 4.091702555569738
+      },
+      "min_cpu": {
+        "avg": 3.237,
+        "max": 5.7971144223155395,
+        "min": 0.011546480390983414
+      }
+    },
+    "memory_gb": {
+      "avg_memory": {
+        "avg": 3.720,
+        "max": 5.435064315795898,
+        "min": 1.2095006306966145
+      },
+      "max_memory": {
+        "avg": 5.257,
+        "max": 8.119842529296875,
+        "min": 1.7180824279785156
+      },
+      "min_memory": {
+        "avg": 1.600,
+        "max": 2.4673500061035156,
+        "min": 0.3107719421386719
+      }
+    }
+  }
+}

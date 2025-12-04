@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tempo-perf-test - Performance Test Summary</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e;
+            color: #eaeaea;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+            color: #00D9FF;
+            margin-bottom: 10px;
+        }
+        h2 {
+            text-align: center;
+            color: #eaeaea;
+            margin-bottom: 30px;
+            font-weight: normal;
+            font-size: 1.1em;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #16213e;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        th {
+            background-color: #00D9FF;
+            color: #1a1a2e;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #333355;
+        }
+        tr:hover {
+            background-color: rgba(0, 217, 255, 0.1);
+        }
+        .metric-good { color: #7AE582; }
+        .metric-warn { color: #FFA07A; }
+        .metric-bad { color: #FF6B6B; }
+        .metric-rec { color: #C44DFF; font-weight: bold; }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+            font-size: 0.9em;
+        }
+        .section-header {
+            background-color: #16213e;
+            color: #00D9FF;
+            font-weight: bold;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>tempo-perf-test</h1>
+        <h2>Performance Test Summary</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Load</th>
+                    <th>Target (MB/s)</th>
+                    <th>Actual (MB/s)</th>
+                    <th>GB/day</th>
+                    <th>P50 (ms)</th>
+                    <th>P90 (ms)</th>
+                    <th>P99 (ms)</th>
+                    <th>Avg (ms)</th>
+                    <th>Avg CPU (m)</th>
+                    <th>Max CPU (m)</th>
+                    <th>Min CPU (m)</th>
+                    <th>Avg Memory (GB)</th>
+                    <th>Max Memory (GB)</th>
+                    <th>Min Memory (GB)</th>
+                    <th>Sustained CPU (m)</th>
+                    <th>Peak Memory</th>
+                    <th>Rec. CPU (20%) (m)</th>
+                    <th>Rec. Memory (20%)</th>
+                    <th>Spans/sec</th>
+                    <th>Efficiency</th>
+                    <th>Error Rate</th>
+                    <th>Target QPS</th>
+                    <th>Actual QPS</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>low</strong></td>
+                    <td>0.7</td>
+                    <td>0.73</td>
+                    <td>62.0</td>
+                    <td>2245.3</td>
+                    <td>4504.1</td>
+                    <td>7273.2</td>
+                    <td>2274.4</td>
+                    <td>8946</td>
+                    <td>11895</td>
+                    <td>10</td>
+                    <td>4.01</td>
+                    <td>5.85</td>
+                    <td>1.25</td>
+                    <td>11680</td>
+                    <td>5.85 GB</td>
+                    <td class="metric-rec">14100</td>
+                    <td class="metric-rec">7.0 GB</td>
+                    <td>7017</td>
+                    <td class="metric-good">104.9%</td>
+                    <td class="metric-good">0.00%</td>
+                    <td>15.0</td>
+                    <td class="metric-good">15.01</td>
+                </tr>
+                <tr>
+                    <td><strong>medium</strong></td>
+                    <td>2.0</td>
+                    <td>1.90</td>
+                    <td>159.9</td>
+                    <td>628.7</td>
+                    <td>1769.2</td>
+                    <td>2429.1</td>
+                    <td>673.4</td>
+                    <td>7880</td>
+                    <td>11222</td>
+                    <td>4669</td>
+                    <td>3.14</td>
+                    <td>4.78</td>
+                    <td>2.49</td>
+                    <td>11176</td>
+                    <td>4.78 GB</td>
+                    <td class="metric-rec">13500</td>
+                    <td class="metric-rec">6.0 GB</td>
+                    <td>18110</td>
+                    <td class="metric-good">94.8%</td>
+                    <td class="metric-good">0.00%</td>
+                    <td>40.0</td>
+                    <td class="metric-good">39.99</td>
+                </tr>
+                <tr>
+                    <td><strong>high</strong></td>
+                    <td>4.0</td>
+                    <td>3.75</td>
+                    <td>316.2</td>
+                    <td>253.2</td>
+                    <td>877.7</td>
+                    <td>2279.4</td>
+                    <td>360.7</td>
+                    <td>8323</td>
+                    <td>10239</td>
+                    <td>3609</td>
+                    <td>3.46</td>
+                    <td>4.48</td>
+                    <td>2.80</td>
+                    <td>10085</td>
+                    <td>4.48 GB</td>
+                    <td class="metric-rec">12100</td>
+                    <td class="metric-rec">5.5 GB</td>
+                    <td>35796</td>
+                    <td class="metric-good">93.7%</td>
+                    <td class="metric-good">0.00%</td>
+                    <td>80.0</td>
+                    <td class="metric-good">79.98</td>
+                </tr>
+                <tr>
+                    <td><strong>very-high</strong></td>
+                    <td>7.0</td>
+                    <td>6.72</td>
+                    <td>566.7</td>
+                    <td>1904.4</td>
+                    <td>3536.1</td>
+                    <td>4854.0</td>
+                    <td>2213.0</td>
+                    <td>8062</td>
+                    <td>9575</td>
+                    <td>4659</td>
+                    <td>3.68</td>
+                    <td>4.71</td>
+                    <td>1.26</td>
+                    <td>8938</td>
+                    <td>4.71 GB</td>
+                    <td class="metric-rec">10800</td>
+                    <td class="metric-rec">6.0 GB</td>
+                    <td>64154</td>
+                    <td class="metric-good">95.9%</td>
+                    <td class="metric-good">0.00%</td>
+                    <td>140.0</td>
+                    <td class="metric-warn">112.45</td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="footer">Generated by Tempo Performance Test Framework (Resource recommendations include 20% safety margin)</p>
+    </div>
+</body>
+</html>

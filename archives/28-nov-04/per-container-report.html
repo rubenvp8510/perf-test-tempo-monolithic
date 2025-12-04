@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>tempo-perf-test - Per-Container Resource Usage</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a2e;
+            color: #eaeaea;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 {
+            text-align: center;
+            color: #00D9FF;
+            margin-bottom: 10px;
+        }
+        h2 {
+            text-align: center;
+            color: #eaeaea;
+            margin-bottom: 30px;
+            font-weight: normal;
+            font-size: 1.1em;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: #16213e;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            margin-bottom: 30px;
+        }
+        th {
+            background-color: #00D9FF;
+            color: #1a1a2e;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #333355;
+        }
+        tr:hover {
+            background-color: rgba(0, 217, 255, 0.1);
+        }
+        .load-header {
+            background-color: #16213e;
+            color: #00D9FF;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #888;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>tempo-perf-test</h1>
+        <h2>Per-Container Resource Usage Report</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Load</th>
+                    <th>Container</th>
+                    <th>Pod</th>
+                    <th>Avg CPU (cores)</th>
+                    <th>Avg CPU (millicores)</th>
+                    <th>Avg CPU %</th>
+                    <th>Max CPU (cores)</th>
+                    <th>Max CPU (millicores)</th>
+                    <th>Max CPU %</th>
+                    <th>Avg Memory (GB)</th>
+                    <th>Avg Memory %</th>
+                    <th>Max Memory (GB)</th>
+                    <th>Max Memory %</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>high</strong></td>
+                    <td>tempo</td>
+                    <td>tempo-simplest-0</td>
+                    <td>6.599</td>
+                    <td>6598.8</td>
+                    <td>95.47%</td>
+                    <td>10.881</td>
+                    <td>10881.4</td>
+                    <td>96.03%</td>
+                    <td>2.22</td>
+                    <td>95.59%</td>
+                    <td>3.53</td>
+                    <td>96.73%</td>
+                </tr>
+                <tr>
+                    <td><strong>high</strong></td>
+                    <td>tempo-gateway</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.212</td>
+                    <td>212.4</td>
+                    <td>3.07%</td>
+                    <td>0.303</td>
+                    <td>303.2</td>
+                    <td>2.68%</td>
+                    <td>0.08</td>
+                    <td>3.35%</td>
+                    <td>0.09</td>
+                    <td>2.52%</td>
+                </tr>
+                <tr>
+                    <td><strong>high</strong></td>
+                    <td>tempo-gateway-opa</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.101</td>
+                    <td>100.8</td>
+                    <td>1.46%</td>
+                    <td>0.146</td>
+                    <td>146.2</td>
+                    <td>1.29%</td>
+                    <td>0.02</td>
+                    <td>0.85%</td>
+                    <td>0.02</td>
+                    <td>0.62%</td>
+                </tr>
+                <tr>
+                    <td><strong>high</strong></td>
+                    <td>tempo-query</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.00</td>
+                    <td>0.20%</td>
+                    <td>0.00</td>
+                    <td>0.13%</td>
+                </tr>
+                <tr><td colspan='13' style='height: 10px;'></td></tr>
+                <tr>
+                    <td><strong>low</strong></td>
+                    <td>tempo</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.001</td>
+                    <td>1.5</td>
+                    <td>65.41%</td>
+                    <td>0.002</td>
+                    <td>2.0</td>
+                    <td>65.36%</td>
+                    <td>1.36</td>
+                    <td>94.59%</td>
+                    <td>3.03</td>
+                    <td>96.39%</td>
+                </tr>
+                <tr>
+                    <td><strong>low</strong></td>
+                    <td>tempo-gateway</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.001</td>
+                    <td>0.6</td>
+                    <td>26.23%</td>
+                    <td>0.001</td>
+                    <td>0.8</td>
+                    <td>26.36%</td>
+                    <td>0.05</td>
+                    <td>3.52%</td>
+                    <td>0.09</td>
+                    <td>2.71%</td>
+                </tr>
+                <tr>
+                    <td><strong>low</strong></td>
+                    <td>tempo-gateway-opa</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.000</td>
+                    <td>0.2</td>
+                    <td>8.34%</td>
+                    <td>0.000</td>
+                    <td>0.3</td>
+                    <td>8.25%</td>
+                    <td>0.02</td>
+                    <td>1.56%</td>
+                    <td>0.02</td>
+                    <td>0.75%</td>
+                </tr>
+                <tr>
+                    <td><strong>low</strong></td>
+                    <td>tempo-query</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.02%</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.02%</td>
+                    <td>0.00</td>
+                    <td>0.33%</td>
+                    <td>0.00</td>
+                    <td>0.15%</td>
+                </tr>
+                <tr><td colspan='13' style='height: 10px;'></td></tr>
+                <tr>
+                    <td><strong>medium</strong></td>
+                    <td>tempo</td>
+                    <td>tempo-simplest-0</td>
+                    <td>3.645</td>
+                    <td>3645.2</td>
+                    <td>98.00%</td>
+                    <td>5.324</td>
+                    <td>5323.5</td>
+                    <td>98.14%</td>
+                    <td>2.42</td>
+                    <td>96.11%</td>
+                    <td>2.42</td>
+                    <td>95.63%</td>
+                </tr>
+                <tr>
+                    <td><strong>medium</strong></td>
+                    <td>tempo-gateway</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.055</td>
+                    <td>54.6</td>
+                    <td>1.47%</td>
+                    <td>0.073</td>
+                    <td>73.3</td>
+                    <td>1.35%</td>
+                    <td>0.07</td>
+                    <td>2.92%</td>
+                    <td>0.08</td>
+                    <td>3.28%</td>
+                </tr>
+                <tr>
+                    <td><strong>medium</strong></td>
+                    <td>tempo-gateway-opa</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.020</td>
+                    <td>19.9</td>
+                    <td>0.54%</td>
+                    <td>0.027</td>
+                    <td>27.4</td>
+                    <td>0.50%</td>
+                    <td>0.02</td>
+                    <td>0.84%</td>
+                    <td>0.02</td>
+                    <td>0.96%</td>
+                </tr>
+                <tr>
+                    <td><strong>medium</strong></td>
+                    <td>tempo-query</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.00</td>
+                    <td>0.13%</td>
+                    <td>0.00</td>
+                    <td>0.13%</td>
+                </tr>
+                <tr><td colspan='13' style='height: 10px;'></td></tr>
+                <tr>
+                    <td><strong>very-high</strong></td>
+                    <td>tempo</td>
+                    <td>tempo-simplest-0</td>
+                    <td>6.208</td>
+                    <td>6208.2</td>
+                    <td>94.03%</td>
+                    <td>9.803</td>
+                    <td>9803.3</td>
+                    <td>94.02%</td>
+                    <td>2.05</td>
+                    <td>95.01%</td>
+                    <td>3.13</td>
+                    <td>96.01%</td>
+                </tr>
+                <tr>
+                    <td><strong>very-high</strong></td>
+                    <td>tempo-gateway</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.259</td>
+                    <td>258.5</td>
+                    <td>3.92%</td>
+                    <td>0.408</td>
+                    <td>407.8</td>
+                    <td>3.91%</td>
+                    <td>0.08</td>
+                    <td>3.77%</td>
+                    <td>0.10</td>
+                    <td>3.08%</td>
+                </tr>
+                <tr>
+                    <td><strong>very-high</strong></td>
+                    <td>tempo-gateway-opa</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.136</td>
+                    <td>135.6</td>
+                    <td>2.05%</td>
+                    <td>0.216</td>
+                    <td>215.8</td>
+                    <td>2.07%</td>
+                    <td>0.02</td>
+                    <td>1.00%</td>
+                    <td>0.02</td>
+                    <td>0.76%</td>
+                </tr>
+                <tr>
+                    <td><strong>very-high</strong></td>
+                    <td>tempo-query</td>
+                    <td>tempo-simplest-0</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.000</td>
+                    <td>0.0</td>
+                    <td>0.00%</td>
+                    <td>0.00</td>
+                    <td>0.22%</td>
+                    <td>0.00</td>
+                    <td>0.15%</td>
+                </tr>
+                <tr style="background-color: rgba(0, 217, 255, 0.15); font-weight: bold;">
+                    <td><strong>very-high</strong></td>
+                    <td colspan="2"><em>Pod Total: tempo-simplest-0</em></td>
+                    <td>6.602</td>
+                    <td>6602.3</td>
+                    <td>100.00%</td>
+                    <td>10.427</td>
+                    <td>10426.8</td>
+                    <td>100.00%</td>
+                    <td>2.16</td>
+                    <td>100.00%</td>
+                    <td>3.26</td>
+                    <td>100.00%</td>
+                </tr>
+            </tbody>
+        </table>
+        <p class="footer">Generated by Tempo Performance Test Framework</p>
+    </div>
+</body>
+</html>
